@@ -2847,6 +2847,43 @@ git commit -m "feat: framed UDP pipe and proxy with a bounded frame length"
 
 ---
 
+### Task 6b: fix stop-and-wait throughput in TcpPipe (added mid-implementation)
+
+**Found while implementing Task 9. The plan's stated write contract is wrong.**
+
+Task 6 was told "hyperdht_stream_write_with_drain returns 1 when drained, 0 under
+backpressure", so `TcpPipe::read_cb` calls `stop_reading()` whenever it sees 0.
+But `SecretStreamDuplex::write` (`../hyperdht-cpp/src/secret_stream.cpp:614`)
+ends with a literal `return 0;` on success — it discards udx's drained bit
+entirely. So **every** successful write reads as backpressure.
+
+Effect: the pipe submits one chunk, stops reading, and waits a full round trip
+for the UDX ack before reading again. Stop-and-wait, ≤64 KiB in flight — roughly
+640 KB/s on a 100 ms RTT path. Correct, but far slower than the JS original, and
+no test in this plan would catch it because none measures throughput.
+
+Fix in `src/pipe.cpp` (NOT in hyperdht — other consumers like nospoon depend on
+that return contract, and changing a shared library's semantics mid-project is
+the riskier move):
+
+- Treat `rc < 0` as an error and `rc >= 0` as "submitted". Do not infer
+  backpressure from the return value at all.
+- Track `stream_pending_bytes_`, incremented by `len` on submit and decremented
+  in the drain callback, and stop reading only when it crosses a watermark —
+  exactly symmetric with how the remote→local direction already uses
+  `kHighWaterMark`. This allows real pipelining instead of one chunk per RTT.
+- The drain lambda must therefore carry its byte count.
+- `destroy()` must not depend on a pending drain ever firing: hyperdht skips the
+  drain callback when the stream closed before the ack
+  (`../hyperdht-cpp/src/ffi_stream.cpp:219`), so pending bytes can stay nonzero
+  forever on a closing stream.
+
+Test to add: assert several writes are submitted before any drain callback fires
+(i.e. the pipe keeps reading while data is in flight). That is the regression
+guard for the whole class of bug.
+
+---
+
 ### Lifetime constraints on StreamSide — read before Tasks 8 and 9
 
 Surfaced while implementing Task 6. Both server and client build a `StreamSide`
