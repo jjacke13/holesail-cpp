@@ -132,19 +132,29 @@ TEST(TcpPipe, ForwardsLocalDataToTheStream) {
     EXPECT_EQ(uv_loop_close(&loop), 0);
 }
 
-TEST(TcpPipe, StopsReadingWhenTheStreamBackpressures) {
+// Regression guard for the stop-and-wait throughput bug.
+//
+// hyperdht returns 0 from EVERY successful write — SecretStreamDuplex::write
+// ends in a literal `return 0` and never forwards libudx's drained bit. An
+// earlier version of this pipe read that 0 as backpressure and stopped after
+// each chunk, waiting a whole round trip per 64 KiB. This test pins the fixed
+// behaviour: writes must PIPELINE while unacked bytes stay under the water
+// mark, and only then stop.
+TEST(TcpPipe, PipelinesWritesUntilTheUnackedWatermark) {
     uv_loop_t loop;
     ASSERT_EQ(uv_loop_init(&loop), 0);
     EchoServer echo(&loop);
     auto logger = silent_logger();
 
     int writes = 0;
-    std::function<void()> saved_drain;
+    size_t written_bytes = 0;
+    std::vector<std::function<void()>> drains;
     StreamSide side;
-    side.write = [&](const uint8_t*, size_t, std::function<void()> on_drain) {
+    side.write = [&](const uint8_t*, size_t n, std::function<void()> on_drain) {
         writes++;
-        saved_drain = std::move(on_drain);
-        return 0;  // backpressure on every write
+        written_bytes += n;
+        drains.push_back(std::move(on_drain));
+        return 0;  // exactly what hyperdht reports on success
     };
     side.pause = [] {};
     side.resume = [] {};
@@ -153,19 +163,28 @@ TEST(TcpPipe, StopsReadingWhenTheStreamBackpressures) {
     TcpPipe pipe(&loop, side, logger);
     ASSERT_EQ(pipe.connect("127.0.0.1", echo.port, [](int err) { EXPECT_EQ(err, 0); }), 0);
 
-    // Push a payload big enough to arrive in several reads.
-    std::vector<uint8_t> big(256 * 1024, 'x');
+    // Far more than the watermark, so the pipe must both pipeline and
+    // eventually stop.
+    std::vector<uint8_t> big(4 * TcpPipe::kStreamHighWaterMark, 'x');
     pipe.on_stream_data(big.data(), big.size());
-    for (int i = 0; i < 200; i++) uv_run(&loop, UV_RUN_NOWAIT);
+    for (int i = 0; i < 400; i++) uv_run(&loop, UV_RUN_NOWAIT);
 
-    // With no drain callback fired, reading must have stopped after the
-    // first backpressured write.
-    EXPECT_EQ(writes, 1);
-    ASSERT_TRUE(static_cast<bool>(saved_drain));
+    // THE point of this test: not stop-and-wait. No drain has fired yet, so a
+    // return value of 0 must not have been treated as backpressure.
+    EXPECT_GT(writes, 1) << "pipe stopped after one write — stop-and-wait regression";
 
-    saved_drain();
-    for (int i = 0; i < 200 && writes < 2; i++) uv_run(&loop, UV_RUN_NOWAIT);
-    EXPECT_GT(writes, 1);
+    // ...but it must still bound itself rather than reading without limit.
+    EXPECT_LT(written_bytes, big.size())
+        << "pipe never applied backpressure at all";
+    const int writes_at_watermark = writes;
+
+    // Draining below the watermark resumes reading.
+    for (auto& d : drains) d();
+    drains.clear();
+    for (int i = 0; i < 400 && writes == writes_at_watermark; i++) {
+        uv_run(&loop, UV_RUN_NOWAIT);
+    }
+    EXPECT_GT(writes, writes_at_watermark) << "reading did not resume after drain";
 
     pipe.destroy();
     echo.close();

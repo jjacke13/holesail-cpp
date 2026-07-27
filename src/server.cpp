@@ -63,13 +63,14 @@ struct DrainCtx {
 };
 
 // hyperdht_stream_write_with_drain reports 0 for *every* accepted write — it
-// never forwards libudx's 1-means-drained. Reporting that straight back to the
-// pipe would read as backpressure on every chunk and stall the tunnel for a
-// full round trip per 64 KB. Allow a small window of unacknowledged writes and
-// only claim backpressure at the cap.
-// ponytail: fixed window, not a byte budget. 8 * 64 KB is the worst-case
-// buffering; make it adaptive only if a real link shows it is the limit.
-constexpr size_t kMaxInflightWrites = 8;
+// never forwards libudx's 1-means-drained (SecretStreamDuplex::write ends in a
+// literal `return 0`). Treating that as backpressure would stall the tunnel for
+// a full round trip per 64 KB chunk.
+//
+// The fix lives in TcpPipe, not here: the pipe ignores the return value and
+// bounds unacknowledged bytes itself (kStreamHighWaterMark), which fixes the
+// client path too — the client cannot synthesise a drained signal at all.
+// So make_side just reports "submitted" and lets the pipe decide.
 
 }  // namespace
 
@@ -261,7 +262,12 @@ StreamSide HolesailServer::make_side(Conn* conn) {
             delete ctx;
             return rc;
         }
-        return conn->drains.size() < kMaxInflightWrites ? 1 : 0;
+        // Report submitted and let TcpPipe own backpressure. It bounds
+        // unacked bytes itself (kStreamHighWaterMark) precisely because
+        // hyperdht's write cannot report drained-vs-backpressured, so
+        // returning a synthetic 1/0 here would be a second, redundant
+        // mechanism that the pipe ignores anyway.
+        return rc;
     };
     side.pause = [conn] { hyperdht_stream_pause(conn->stream); };
     side.resume = [conn] { hyperdht_stream_resume(conn->stream); };

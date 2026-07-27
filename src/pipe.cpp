@@ -127,16 +127,33 @@ void TcpPipe::read_cb(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
     }
 
     const auto len = static_cast<size_t>(nread);
+
+    // Do NOT infer backpressure from the return value: hyperdht returns 0 on
+    // every successful write (it drops udx's drained bit), so `rc == 0` would
+    // mean "stop after every chunk and wait a round trip for the ack".
+    // rc < 0 is an error; anything else means submitted.
+    self->stream_pending_bytes_ += len;
     const int rc = self->stream_.write(
         reinterpret_cast<const uint8_t*>(buf->base), len,
-        [self] { self->resume_reading(); });
+        [self, len] {
+            self->stream_pending_bytes_ -=
+                (len < self->stream_pending_bytes_) ? len : self->stream_pending_bytes_;
+            if (self->stream_pending_bytes_ < kStreamHighWaterMark) {
+                self->resume_reading();
+            }
+        });
 
     if (rc < 0) {
+        self->stream_pending_bytes_ -=
+            (len < self->stream_pending_bytes_) ? len : self->stream_pending_bytes_;
         self->destroy();
         return;
     }
-    if (rc == 0) {
-        // Backpressure — stop reading until the drain callback fires.
+    if (self->stream_pending_bytes_ >= kStreamHighWaterMark) {
+        // Genuinely too much unacked data in flight — stop reading until
+        // enough drains. Note the drain callback is skipped entirely if the
+        // stream closes first (hyperdht ffi_stream.cpp:219), so destroy() must
+        // never wait on stream_pending_bytes_ reaching zero.
         self->stop_reading();
     }
 }

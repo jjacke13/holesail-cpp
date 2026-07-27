@@ -36,6 +36,18 @@ public:
     // stream is paused until the queue drains.
     static constexpr size_t kHighWaterMark = 64 * 1024;
 
+    // How many bytes may be in flight toward the encrypted stream before the
+    // local socket stops being read.
+    //
+    // This exists because hyperdht's write does NOT report drained-vs-
+    // backpressured: SecretStreamDuplex::write returns a literal 0 on every
+    // success (secret_stream.cpp:614), discarding udx's drained bit. Treating
+    // that 0 as backpressure would stop reading after every single chunk and
+    // wait a full round trip for the ack — stop-and-wait at <=64 KiB per RTT.
+    // So backpressure is tracked by outstanding bytes instead, symmetric with
+    // kHighWaterMark on the opposite direction, which lets writes pipeline.
+    static constexpr size_t kStreamHighWaterMark = 256 * 1024;
+
     TcpPipe(uv_loop_t* loop, StreamSide stream, Logger& logger);
     ~TcpPipe();
 
@@ -84,7 +96,8 @@ private:
     std::function<void()> on_destroy_;
 
     std::vector<char> scratch_ = std::vector<char>(64 * 1024);
-    size_t pending_bytes_ = 0;   // queued toward the local socket
+    size_t pending_bytes_ = 0;         // queued toward the local socket
+    size_t stream_pending_bytes_ = 0;  // submitted to the stream, not yet acked
     int inflight_writes_ = 0;
     bool reading_ = false;
     bool stream_paused_ = false;
