@@ -2847,6 +2847,31 @@ git commit -m "feat: framed UDP pipe and proxy with a bounded frame length"
 
 ---
 
+### Lifetime constraints on StreamSide — read before Tasks 8 and 9
+
+Surfaced while implementing Task 6. Both server and client build a `StreamSide`
+over a `hyperdht_stream_t*`, and both are subject to these:
+
+1. **The buffer handed to `StreamSide::write` is borrowed, not owned.**
+   `TcpPipe::read_cb` passes a pointer into the pipe's per-pipe `scratch_`
+   vector, valid only for the duration of that call. `hyperdht_stream_write*`
+   copies synchronously, so the direct wiring is safe — but any wrapper that
+   *defers* the write (a queue, a retry, a lambda that outlives the call) MUST
+   copy first.
+
+2. **The drain lambda captures a raw `TcpPipe*`.** The owner must not destroy a
+   pipe while a backpressured write is still outstanding, or the drain callback
+   fires into freed memory. `TcpPipe::resume_reading()` guards the
+   destroyed-but-not-yet-deleted window; it cannot guard the already-deleted
+   one. Practically: drop the pipe from the owning map only from its
+   `on_destroy` callback, never eagerly on stream close.
+
+3. **`hyperdht_stream_write_with_drain` needs a heap context** holding the
+   `std::function`, freed in the callback — and that callback must check whether
+   the stream has closed in the meantime before touching the pipe.
+
+---
+
 ### Task 8: HolesailServer
 
 **Files:**
