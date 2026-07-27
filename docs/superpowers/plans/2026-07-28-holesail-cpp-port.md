@@ -4037,5 +4037,10 @@ git commit -m "docs: readme, project notes, JS interop harness and static aarch6
 - [ ] `HOLESAIL_NETWORK_TESTS=1 ctest` green
 - [ ] `scripts/cross-test.sh` green in both directions, secure and public
 - [ ] `nix build .#default` and `.#holesail-aarch64-static` both succeed
-- [ ] `../hyperdht-cpp` still passes its own 584 tests with the Task 2 additions
+- [x] `../hyperdht-cpp` still passes its own tests with the Task 2 additions —
+      **verified: 714/714 in the unit lane (`ctest -LE live`), zero regressions.**
+      Note the "584 tests" figure quoted elsewhere in this plan and in
+      hyperdht-cpp's CLAUDE.md is stale; the repo has 715 registered tests
+      (714 unit + the `live` lane, which needs real network and has one
+      pre-existing failure unrelated to this work).
 - [ ] Every divergence in the code has a matching row in the spec's D-table
