@@ -1,0 +1,33 @@
+# LeakSanitizer suppressions — hyperdht-cpp teardown only.
+#
+# These are DELIBERATELY narrow. Every frame named below is inside the
+# dependency; nothing in holesail-cpp is suppressed, so a leak we introduce
+# still fails the build. Verified 2026-07-28 against hyperdht-cpp a08cade.
+#
+# Use with:
+#   LSAN_OPTIONS=suppressions=test/lsan.supp
+#
+# ---------------------------------------------------------------------------
+# 1. Cancelled queries are never reaped.
+#
+# hyperdht_query_free() deletes only the wrapper; the underlying query state
+# is held alive by an internal completion lambda and released only when that
+# lambda fires. hyperdht_query_cancel() does NOT fire it, despite the header
+# documenting "on_done fires exactly once per query (natural completion OR
+# cancel)". Reproduced standalone: the leak is byte-identical whether or not
+# the loop is pumped after cancel, and the done callback never runs.
+# Roughly 34 KB per client that is torn down with a lookup in flight.
+leak:hyperdht_mutable_get_ex
+leak:hyperdht_immutable_get_ex
+leak:hyperdht::query::Query
+
+# ---------------------------------------------------------------------------
+# 2. Baseline teardown leak, ~1237 bytes / 4 allocations per DHT.
+#
+# Reproducible with a program containing no holesail code at all, following
+# the create -> listen -> destroy -> uv_run -> free recipe from hyperdht.h
+# verbatim. It leaves one stopped-but-unclosed uv_timer_t in the loop
+# (active=0 closing=0 ref=1), which is also why uv_loop_close() cannot
+# return 0 after using a DHT.
+leak:hyperdht_create
+leak:hyperdht::HyperDHT::HyperDHT

@@ -3857,6 +3857,13 @@ Holesail instances, and the test client — everything is callback-driven on one
 loop, so no threads are needed. Give each test a wall-clock deadline
 (`uv_timer_t`, 60 s) that fails the test rather than hanging forever.
 
+**Do NOT assert `uv_loop_close() == 0` in these tests.** It cannot hold once a
+DHT has existed: hyperdht-cpp leaves a stopped-but-unclosed `uv_timer_t` in the
+loop, confirmed with a program containing no holesail code (see Step 5). That
+assertion is correct and valuable in the pure-libuv unit tests
+(`test_pipe`, `test_udp_pipe`), where it is the handle-leak check — keep it
+there, and leave it out here.
+
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
@@ -3884,10 +3891,29 @@ them all green.
 - [ ] **Step 5: Run the network suite under sanitizers**
 
 ```bash
-nix develop --command bash -c "cmake --build build-asan && cd build-asan && HOLESAIL_NETWORK_TESTS=1 ctest --output-on-failure"
+nix develop --command bash -c "cmake --build build-asan && cd build-asan && \
+  LSAN_OPTIONS=suppressions=../test/lsan.supp HOLESAIL_NETWORK_TESTS=1 ctest --output-on-failure"
 ```
 
 Expected: PASS, no ASan/UBSan reports.
+
+**The suppression file is required and is scoped to hyperdht-cpp only** — see
+`test/lsan.supp`. Two teardown defects in the dependency, both confirmed
+2026-07-28 against hyperdht-cpp `a08cade` and both reproducible with programs
+containing no holesail code:
+
+1. `hyperdht_query_cancel()` does not fire `on_done`, contrary to the contract
+   documented in `hyperdht.h`. `hyperdht_query_free()` deletes only the wrapper,
+   so a cancelled query's state is never released — about 34 KB per client torn
+   down with a lookup in flight. Pumping the loop after cancel does not help;
+   the leak is byte-identical with 0 and 200 iterations.
+2. A DHT leaves one stopped-but-unclosed `uv_timer_t` behind (~1237 bytes /
+   4 allocations per instance).
+
+Nothing in holesail-cpp is suppressed, so a leak introduced by this port still
+fails the run. Both defects belong in hyperdht-cpp and should be fixed there
+with their own regression run against its 714-test suite; they are out of scope
+for this port.
 
 - [ ] **Step 6: Commit**
 
