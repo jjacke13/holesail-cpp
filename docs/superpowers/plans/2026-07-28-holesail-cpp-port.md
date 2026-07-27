@@ -3931,6 +3931,15 @@ echo "All interop cases passed."
 
 `chmod +x scripts/cross-test.sh`.
 
+**Prerequisite, verified 2026-07-28:** the harness needs `python3`, `curl` and
+`nodejs` on PATH, and the host shell has no `python3`. Add
+`pkgs.python3 pkgs.curl pkgs.nodejs` to the flake devShell `packages` list as
+part of this task, and always invoke the harness through
+`nix develop --command ./scripts/cross-test.sh`. The JS reference binary is
+confirmed working at
+`/nix/store/mlhix2xnb4hsa4zf85rkln5ngr8ncm14-holesail-2.4.1/bin/holesail`
+(reports version 2.4.1), and all three public bootstrap nodes resolve.
+
 - [ ] **Step 2: Run the harness**
 
 ```bash
