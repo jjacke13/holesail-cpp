@@ -88,15 +88,23 @@ bool FrameDecoder::push(const uint8_t* data, size_t len,
 
         // Reject BEFORE reserving or waiting for the claimed length. JS keeps
         // concatenating until buffer.length >= 4 + len, so a 0xFFFFFFFF header
-        // makes it buffer toward 4 GiB. We refuse instead.
+        // makes it buffer toward 4 GiB. In C++ it is worse than a big
+        // allocation: see the size_t widening below.
         if (frame_len > kMaxDatagram) {
             buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<long>(offset));
             return false;
         }
-        if (buffer_.size() - offset < 4 + frame_len) break;  // incomplete, wait
+        // Widen to size_t before adding. In unsigned-int arithmetic
+        // `4 + 0xFFFFFFFF` wraps to 3, which would sail past this
+        // incompleteness guard and hand on_frame a 4 GiB out-of-bounds read.
+        // The cap above already prevents that, so this is belt and braces —
+        // it keeps the guard sound if kMaxDatagram is ever raised or the
+        // check above is ever reordered.
+        const size_t total = static_cast<size_t>(4) + frame_len;
+        if (buffer_.size() - offset < total) break;  // incomplete, wait
 
         on_frame(buffer_.data() + offset + 4, frame_len);
-        offset += 4 + frame_len;
+        offset += total;
     }
 
     if (offset > 0) {
