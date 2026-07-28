@@ -4095,11 +4095,21 @@ git commit -m "docs: readme, project notes, JS interop harness and static aarch6
 
 ## Post-Implementation Checklist
 
-- [ ] `ctest` green in Debug and Release
-- [ ] `ctest` green under ASan + UBSan
-- [ ] `HOLESAIL_NETWORK_TESTS=1 ctest` green
-- [ ] `scripts/cross-test.sh` green in both directions, secure and public
-- [ ] `nix build .#default` and `.#holesail-aarch64-static` both succeed
+**All complete — final acceptance pass 2026-07-28.**
+
+- [x] `ctest` green in Debug and Release — **11/11 suites, 85 real gtest cases**
+      (counted per binary with `--gtest_list_tests`; an empty gtest binary also
+      reports "Passed", so suite count alone is not evidence)
+- [x] `ctest` green under ASan + UBSan — 0 sanitizer errors, 0 unsuppressed leaks.
+      Also re-run at `-O2` with sanitizers to clear the Release-only
+      `-Wfree-nonheap-object` warning in `frame()` as a GCC false positive.
+- [x] `HOLESAIL_NETWORK_TESTS=1 ctest` green — 11/11, 28.9 s
+- [x] `scripts/cross-test.sh` green — **6/6**: cpp-cpp-secure, cpp-js-secure,
+      js-cpp-secure, cpp-js-public, js-cpp-public, lookup-js-record. Every tunnel
+      case verified `http=200` *and* a run-unique body marker.
+- [x] `nix build .#default` and `.#holesail-aarch64-static` both succeed —
+      the latter is `ELF 64-bit LSB executable, ARM aarch64, statically linked`,
+      3.4 MB, "not a dynamic executable"
 - [x] `../hyperdht-cpp` still passes its own tests with the Task 2 additions —
       **verified: 714/714 in the unit lane (`ctest -LE live`), zero regressions.**
       Note the "584 tests" figure quoted elsewhere in this plan and in
