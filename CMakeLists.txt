@@ -42,9 +42,37 @@ target_sources(holesail_lib PRIVATE
 add_executable(holesail app/main.cpp)
 target_link_libraries(holesail PRIVATE holesail_lib)
 
-# The CLI is the only artefact worth installing; holesail_lib is internal.
-# Without this the flake's package output fails ("ninja: unknown target 'install'").
-install(TARGETS holesail RUNTIME DESTINATION bin)
+# Install the CLI *and* the static library with its headers. The library half
+# is the point of the lib+CLI split: other projects in the workspace embed the
+# tunnel rather than shelling out to the binary.
+# Without at least one install rule the flake's package output fails
+# ("ninja: unknown target 'install'").
+include(GNUInstallDirs)
+
+install(TARGETS holesail RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(TARGETS holesail_lib
+    EXPORT holesail-targets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+install(DIRECTORY include/holesail
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.hpp")
+
+# Lets a consumer do find_package(holesail) + target_link_libraries(x holesail::holesail_lib),
+# the same way this project consumes hyperdht.
+install(EXPORT holesail-targets
+    FILE holesail-targets.cmake
+    NAMESPACE holesail::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/holesail)
+
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/holesail-config.cmake
+"include(CMakeFindDependencyMacro)
+find_dependency(hyperdht)
+include(\"\${CMAKE_CURRENT_LIST_DIR}/holesail-targets.cmake\")
+")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/holesail-config.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/holesail)
 
 if(HOLESAIL_BUILD_TESTS)
     enable_testing()

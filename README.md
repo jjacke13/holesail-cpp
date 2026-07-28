@@ -248,9 +248,17 @@ the DHT free onto the loop instead of doing it inline.
 timer per DHT. The CLI works around it by `uv_walk`-closing whatever is left before
 `uv_loop_close()`; see `drain_and_close()` in `src/cli.cpp`.
 
-Linking: only the `holesail` binary is installed, so embed from the source tree —
+Linking — the install ships `libholesail_lib.a`, the headers, and a CMake package
+config, so either form works:
 
 ```cmake
+# Against an installed holesail (nix build .#default, or cmake --install)
+find_package(holesail REQUIRED)
+target_link_libraries(my_app PRIVATE holesail::holesail_lib)
+```
+
+```cmake
+# Or straight from a source checkout
 add_subdirectory(holesail-cpp)
 target_link_libraries(my_app PRIVATE holesail_lib)   # brings hyperdht, libsodium, libuv along
 ```
