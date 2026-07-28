@@ -161,6 +161,16 @@ These cost real debugging time. Read them before changing anything in the areas 
    (D3/Q1): JS passed `secure: argv.public`, making `--public` mean *secure*; here it means
    public. Everything else in §8/§9 of the spec is reproduced as-is.
 
+11. **Release builds emit one `-Wfree-nonheap-object` warning from `frame()`
+   (`src/udp_pipe.cpp:69`). It is a GCC false positive — do not go hunting heap
+   corruption.** GCC 14 at `-O2` inlines `std::vector`'s reallocation path into
+   `frame()` and warns about the `deallocate` in it, but that path cannot run:
+   `reserve(4 + len)` is followed by exactly four `push_back`s plus `len` inserted
+   bytes. Verified by building at `-O2` *with* `-fsanitize=address,undefined` and
+   running the 15 `test_udp_pipe` cases: all pass, zero sanitizer findings (and the
+   warning disappears, because the sanitizers change inlining). Debug builds do not
+   show it at all.
+
 ## Build
 
 ```bash
