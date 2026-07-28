@@ -5,3 +5,7 @@ result-*
 compile_commands.json
 .cache/
 .direnv/
+
+# Local project notes for AI assistants — not part of the published repo
+# (same convention as hyperdht-cpp)
+CLAUDE.md
