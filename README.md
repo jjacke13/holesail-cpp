@@ -25,6 +25,22 @@ public DHT, in both directions, in secure and public mode.
 `libuv MUST be 1.51.x.` 1.52.0/1.52.1 carry a UDP `POLLERR` regression that silently wedges
 libudx streams on real NAT paths; the flake pins nixos-25.11 for that reason.
 
+## Footprint
+
+Measured on a Raspberry Pi 5, `--live 8000 --public`, aarch64 fully-static build:
+
+| | |
+|---|---|
+| Resident (`VmRSS`) | **3.2 MB** |
+| Peak ever (`VmHWM`) | 3.8 MB |
+| Actual heap (`Pss_Anon`) | **0.7 MB** — the rest is the binary paged in, file-backed and evictable |
+| Virtual (`VmSize`) | 3.5 MB — static musl, so no loader and no shared-library mappings |
+| Threads | 1 — DHT node, holepunch and socket bridge all on one libuv loop |
+| Binary on disk | 3.4 MB, **zero runtime dependencies** |
+
+`nix build .#holesail-aarch64-static` produces a binary you can `scp` onto any aarch64
+Linux box — Pi Zero 2 W upward — with no nix, libuv or libsodium needed on the target.
+
 ## Build
 
 ### Nix (what CI and the cross-test use)
