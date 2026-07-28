@@ -26,7 +26,15 @@
     in {
       devShells = forAll (system: pkgs: {
         default = pkgs.mkShell {
-          nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
+          nativeBuildInputs = [
+            pkgs.cmake pkgs.ninja pkgs.pkg-config
+            # scripts/cross-test.sh needs all three: python3 serves the origin
+            # being tunnelled, curl drives it through the proxy, and nodejs
+            # runs the JS holesail we test interop against. None are on the
+            # host PATH, and a missing python3 makes the harness report a
+            # tunnel failure when the origin simply never started.
+            pkgs.python3 pkgs.curl pkgs.nodejs
+          ];
           # buildInputs, not `packages`: only host deps get CMAKE_PREFIX_PATH
           # and PKG_CONFIG_PATH from the cmake/pkg-config setup hooks.
           buildInputs = [
