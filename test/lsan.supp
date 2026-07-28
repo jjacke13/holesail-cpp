@@ -31,3 +31,28 @@ leak:hyperdht::query::Query
 # return 0 after using a DHT.
 leak:hyperdht_create
 leak:hyperdht::HyperDHT::HyperDHT
+leak:hyperdht::HyperDHT::start_interface_watcher
+leak:on_interface_event_interval
+leak:uv_interface_addresses
+
+# ---------------------------------------------------------------------------
+# 3. Connect/stream state dropped at teardown, ~11 KB per run once a test
+#    actually establishes connections.
+#
+# Added after the integration suite became the first thing here to make real
+# connections. Every allocation was traced to its #1 frame and all of them
+# are inside the dependency: hyperdht drops in-flight connect and stream
+# state when hyperdht_destroy lands before a graceful stream close has
+# round-tripped. The count scales with the number of connections, which is
+# consistent with that reading. Same class as defects 1 and 2 above and
+# likewise belongs upstream.
+leak:hyperdht::HyperDHT::do_connect
+leak:hyperdht::server::Server::on_handshake_result
+leak:udx__cirbuf_init
+leak:udx__cirbuf_set
+
+# The uv_loop_t's own internals, leaked strictly as a CONSEQUENCE of defect 2:
+# uv_loop_close() returns EBUSY because of hyperdht's orphaned timer, so libuv
+# never frees them. Not a separate bug.
+leak:uv_loop_init
+leak:uv__io_start
