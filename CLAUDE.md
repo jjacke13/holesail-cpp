@@ -38,9 +38,19 @@ directions, secure and public: real HTTP traffic (200 + correct body) through th
 
 ## Key Decisions
 
-**C API, not the C++ headers.** `hyperdht.h` symbols are always exported; the C++ classes are
-hidden in Release builds unless `HYPERDHT_EXPORT_CXX=ON`. The examples and the Python port
-use the C API too.
+**This port talks to hyperdht through its C FFI** — `<hyperdht/hyperdht.h>`, opaque handles,
+`hyperdht_*` functions — not the C++ headers. Same as `examples/cpp/*` and the Python port.
+A narrow C ABI also insulates us from churn in hyperdht's C++ internals.
+
+Be aware this was chosen on a premise that turned out to be false: that the C++ classes are
+hidden in Release unless `HYPERDHT_EXPORT_CXX=ON`. That visibility block sits inside
+`if(BUILD_SHARED_LIBS)`, and the package we link is **static** — `libhyperdht.a` exports
+`HyperDHT::connect` and `Server::set_firewall` as global symbols, and every C++ header ships.
+The C++ API was available all along (nospoon uses it). Two of the three bugs that blocked
+this port were consequences: the inverted firewall lived only in the FFI wrapper, and
+`reusable_socket` already existed on the C++ `ConnectOptions`. Not worth switching now —
+it works and is field-validated — but the trade-off is real, so weigh it deliberately if a
+future project makes the same call.
 
 **Local sockets are libuv handles on the DHT's loop.** Single-threaded, callback-driven, no
 polling, no threads, no raw fds.
