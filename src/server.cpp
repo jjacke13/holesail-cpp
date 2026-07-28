@@ -238,6 +238,7 @@ int HolesailServer::firewall_cb(const uint8_t remote_pk[32], const char* /*host*
     if (self == nullptr || remote_pk == nullptr) return 1;
     // Constant time: the comparison is against our own public key, and a
     // timing oracle on it would leak which prefix a guess got right.
+    // Contract: 0 accepts, non-zero rejects.
     return sodium_memcmp(remote_pk, self->public_key_.data(), 32) == 0 ? 0 : 1;
 }
 
