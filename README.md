@@ -12,14 +12,44 @@ It is **wire-compatible with the JavaScript original**, which is the whole point
 port: same connection strings, same key derivation, same DHT records. A C++ server accepts
 an unmodified JS `holesail --connect`, and a C++ client connects to an unmodified JS
 `holesail --live`. `scripts/cross-test.sh` proves that against the real 2.4.1 binary on the
-public DHT, in both directions, in secure and public mode.
+public DHT, in both directions, in secure and public mode — and the **official Holesail
+phone app** connects to a C++ server over mobile data, across carrier NAT.
+
+## The original Holesail
+
+This is an unofficial, independent port. All of the protocol design, the connection-string
+scheme, the DHT record format and the product itself are the work of the upstream Holesail
+project — this repo only reimplements the client and server in C++.
+
+| | |
+|---|---|
+| Website | <https://holesail.io> — "Open Source P2P Reverse Proxy" |
+| Source | <https://github.com/holesail/holesail> |
+| npm | [`holesail`](https://www.npmjs.com/package/holesail) — `npm i -g holesail` |
+| Author | supersuryaansh, and the Holesail contributors |
+| License | AGPL-3.0 |
+| Built on | [Pear](https://pears.com) / [HyperDHT](https://github.com/holepunchto/hyperdht) by Holepunch |
+
+**Use the original if you want the supported thing.** It has features this port does not
+(`--filemanager`, the desktop and mobile apps, the QR-code pairing flow), it is what the
+Holesail team maintains, and it runs anywhere Node does.
+
+This port exists for one reason: to run the same protocol on hardware where a Node runtime
+is too heavy — see [Footprint](#footprint) below, where it uses **24× less memory** than
+the original on the same Raspberry Pi. Because the wire format is identical, the two
+interoperate freely: put this on the constrained end and the official client, app or CLI
+on the other.
+
+Bugs in *this* port belong here. Bugs in the protocol, the apps, or the JS implementation
+belong upstream — please do not send those to the Holesail team as if they were ours, or
+ours to them.
 
 ## Relationship to the JS holesail and to hyperdht-cpp
 
 | | |
 |---|---|
 | **holesail 2.4.1 (JS)** | The reference implementation. Every behaviour here was derived by reading its source, and every divergence is listed below. Runtime: Node.js + `hyperdht`. |
-| **holesail-cpp** | This repo. A static library (`libholesail`) plus a thin CLI (`holesail`). No Node, no JSON library, no CLI parser, no QR encoder — libsodium, libuv and hyperdht only. |
+| **holesail-cpp** | This repo. A static library (`libholesail_lib.a`) plus a thin CLI (`holesail`). No Node, no JSON library, no CLI parser, no QR encoder — libsodium, libuv and hyperdht only. |
 | **hyperdht-cpp** | The transport. holesail-cpp talks to it through its C API (`<hyperdht/hyperdht.h>`) and drives local sockets with `uv_tcp_t` / `uv_udp_t` on the DHT's own libuv loop. Single-threaded, callback-driven, no polling, no threads. |
 
 `libuv MUST be 1.51.x.` 1.52.0/1.52.1 carry a UDP `POLLERR` regression that silently wedges
@@ -144,10 +174,21 @@ Connection Mode: Public Connection String
 Connect with key: hs://0000ochrpsr7qboxhn7huhg7diti5ah1i37y6du4yhni7pyot4wnz8qy
 ```
 
-Public mode publishes under a random keypair and hands out `hs://0000` + z-base-32 of the
-**public key**. Knowing it lets anyone connect but not impersonate the server; there is no
-firewall in this mode. `--public` on the client side forces public mode for a bare
-(unprefixed) key — see D3 below.
+Public mode hands out `hs://0000` + z-base-32 of the **public key**. Knowing it lets anyone
+connect but not impersonate the server; there is no firewall in this mode. `--public` on the
+client side forces public mode for a bare (unprefixed) key — see D3 below.
+
+With no `--key` the keypair is random, so the address changes on every restart. Pass `--key`
+to make it stable:
+
+```bash
+holesail --live 8080 --public --key "my-super-secret-holesail-key-abc"
+```
+
+That gives a **permanent public address whose secret never leaves the machine** — unlike
+private mode, where the connection string *is* the key. Lose the key and you lose the
+address. Mind quirk Q2 below: if the key's 6th character is `s`, `--public` is silently
+ignored and you get a private server.
 
 ### UDP
 
@@ -322,8 +363,21 @@ a secure link into public mode.
 ## Testing
 
 ```bash
-nix develop --command bash -c "cd build && ctest --output-on-failure"   # unit + loopback
-nix develop --command ./scripts/cross-test.sh ./build/holesail          # live, needs network
+# 81 unit cases, no network needed. The 4 loopback tunnel tests SKIP unless opted in.
+nix develop --command bash -c "cd build && ctest --output-on-failure"
+
+# Same suites plus the 4 real-DHT loopback tunnels (~14 s).
+nix develop --command bash -c "cd build && HOLESAIL_NETWORK_TESTS=1 ctest --output-on-failure"
+
+# The acceptance gate: live interop against the real JS binary.
+nix develop --command ./scripts/cross-test.sh ./build/holesail
+```
+
+Under sanitizers, pass the suppression file. It names only hyperdht-cpp frames, so a leak
+introduced *here* still fails the run:
+
+```bash
+LSAN_OPTIONS=suppressions=$PWD/test/lsan.supp HOLESAIL_NETWORK_TESTS=1 ctest
 ```
 
 `scripts/cross-test.sh` is the acceptance gate: it starts a real HTTP origin, tunnels it,
