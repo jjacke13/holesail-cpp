@@ -194,8 +194,10 @@ holesail-cpp/
 └── test/                        GoogleTest
 ```
 
-Build artifacts: `libholesail` (static) + `holesail` (executable). Headers are
-installed so other projects in the workspace can embed the tunnel.
+Build artifacts: `libholesail_lib` (static) + `holesail` (executable). The
+install ships the binary, the static library, the headers, and a CMake package
+config, so a consumer can `find_package(holesail)` and link
+`holesail::holesail_lib` — the same way this project consumes hyperdht.
 
 ### 3.1 Key decisions
 
