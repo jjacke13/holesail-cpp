@@ -27,19 +27,30 @@ libudx streams on real NAT paths; the flake pins nixos-25.11 for that reason.
 
 ## Footprint
 
-Measured on a Raspberry Pi 5, `--live 8000 --public`, aarch64 fully-static build:
+Measured on the same Raspberry Pi 5, both idle, both `--live 8000 --public` with the same
+`--key`. holesail-cpp is the aarch64 fully-static build; the JS side is the real
+`holesail` 2.4.1 on Node 24.
 
-| | |
-|---|---|
-| Resident (`VmRSS`) | **3.2 MB** |
-| Peak ever (`VmHWM`) | 3.8 MB |
-| Actual heap (`Pss_Anon`) | **0.7 MB** — the rest is the binary paged in, file-backed and evictable |
-| Virtual (`VmSize`) | 3.5 MB — static musl, so no loader and no shared-library mappings |
-| Threads | 1 — DHT node, holepunch and socket bridge all on one libuv loop |
-| Binary on disk | 3.4 MB, **zero runtime dependencies** |
+| | holesail-cpp | holesail 2.4.1 (JS) | |
+|---|---|---|---|
+| Resident (`VmRSS`) | **3.2 MB** | 77.8 MB | **24× smaller** |
+| Peak ever (`VmHWM`) | 3.8 MB | 77.9 MB | 20× |
+| Real heap (`Pss_Anon`) | **0.7 MB** | 27.9 MB | **40× smaller** |
+| Virtual (`VmSize`) | 3.5 MB | 1.17 GB | 334× |
+| Threads | **1** | 7 | |
+
+`Pss_Anon` is the number that matters: **0.7 MB of genuinely dynamic memory**. The rest of
+the C++ figure is the 3.4 MB static binary paged in — file-backed and evictable, so the
+kernel reclaims it under pressure. One thread runs the DHT node, the holepunch machinery
+and the socket bridge on a single libuv loop; V8 brings GC and worker threads regardless.
+The 1.17 GB virtual is V8 reserving address space — harmless on 64-bit, fatal on 32-bit ARM.
+
+For reference, the Python port of holesail on the same box sits at **20.9 MB RSS**,
+1 thread — between the two, as an interpreter with no JIT should.
 
 `nix build .#holesail-aarch64-static` produces a binary you can `scp` onto any aarch64
-Linux box — Pi Zero 2 W upward — with no nix, libuv or libsodium needed on the target.
+Linux box — Pi Zero 2 W upward — with **zero runtime dependencies**: no nix, no Node, no
+libuv or libsodium needed on the target.
 
 ## Build
 
