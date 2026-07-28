@@ -5,17 +5,16 @@
     # libuv 1.51.x — see Global Constraints. Do NOT bump past 25.11.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
-    # The sibling checkout, referenced through the git fetcher on purpose:
-    #   * `path:../hyperdht-cpp` does not work — Nix resolves relative inputs
-    #     against the *store copy* of this flake, so `../` escapes the tree.
-    #   * `path:/abs/path` copies the whole directory, gitignored build dirs
-    #     included (~15 GB in that checkout).
-    #   * `?ref=refs/heads/main` pins to the last commit instead of the working
-    #     tree, so an uncommitted edit next door cannot silently change this
-    #     build (and does not block writing flake.lock).
     # Pull sibling changes with: nix flake update hyperdht-cpp
-    # Replace with `github:jjacke13/hyperdht-cpp` once it is published.
-    hyperdht-cpp.url = "git+file:///home/jacke/Desktop/repos/hyperdht-cpp?ref=refs/heads/main";
+    #
+    # For local co-development against an uncommitted sibling checkout, override
+    # on the command line rather than editing this line:
+    #   nix build --override-input hyperdht-cpp \
+    #     'git+file:///home/jacke/Desktop/repos/hyperdht-cpp?ref=refs/heads/main'
+    # Note `path:../hyperdht-cpp` does NOT work — Nix resolves relative inputs
+    # against the store copy of this flake, so `../` escapes the tree; and
+    # `path:/abs/path` copies gitignored build dirs (~15 GB in that checkout).
+    hyperdht-cpp.url = "github:jjacke13/hyperdht-cpp";
     hyperdht-cpp.inputs.nixpkgs.follows = "nixpkgs";
   };
 
