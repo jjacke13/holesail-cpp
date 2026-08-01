@@ -2,21 +2,32 @@
 #
 # These are DELIBERATELY narrow. Every frame named below is inside the
 # dependency; nothing in holesail-cpp is suppressed, so a leak we introduce
-# still fails the build. Verified 2026-07-28 against hyperdht-cpp a08cade.
+# still fails the build. Verified 2026-07-28 against hyperdht-cpp a08cade;
+# block 1 re-verified and corrected 2026-08-01 against hyperdht-cpp 81974c0.
 #
 # Use with:
 #   LSAN_OPTIONS=suppressions=test/lsan.supp
 #
 # ---------------------------------------------------------------------------
-# 1. Cancelled queries are never reaped.
+# 1. Cancelled query state is not fully released.
 #
-# hyperdht_query_free() deletes only the wrapper; the underlying query state
-# is held alive by an internal completion lambda and released only when that
-# lambda fires. hyperdht_query_cancel() does NOT fire it, despite the header
-# documenting "on_done fires exactly once per query (natural completion OR
-# cancel)". Reproduced standalone: the leak is byte-identical whether or not
-# the loop is pumped after cancel, and the done callback never runs.
-# Roughly 34 KB per client that is torn down with a lookup in flight.
+# hyperdht_query_free() deletes only the wrapper; it does not take ownership
+# of the underlying query state. Measured A/B under ASAN upstream: ~1272 B /
+# 17 allocations per query cancelled in flight.
+#
+# CORRECTED 2026-08-01 against hyperdht-cpp 4f463c5. An earlier note here
+# claimed hyperdht_query_cancel() never fires on_done, in violation of
+# hyperdht.h:751, and put the leak at ~34 KB. Both were wrong. Upstream
+# re-ran it standalone: on_done DOES fire with HYPERDHT_ERR_CANCELLED on all
+# four cancelable paths and in both cancel/free orderings. What legitimately
+# does not fire is query_free() with no preceding cancel — documented at
+# hyperdht.h:759, and the likely subject of the original repro. The original
+# measurement was also distorted by a buffering trap: stderr DHT_LOG is
+# unbuffered while piped stdout is block-buffered, so a callback that did
+# fire can look like it never did.
+#
+# Because cancel DOES fire on_done, HolesailClient::destroy() clears query_
+# BEFORE calling cancel — see the comment at src/client.cpp.
 leak:hyperdht_mutable_get_ex
 leak:hyperdht_immutable_get_ex
 leak:hyperdht::query::Query

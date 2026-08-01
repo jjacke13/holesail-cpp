@@ -474,6 +474,11 @@ void HolesailClient::destroy() {
     destroyed_ = true;
 
     if (query_ != nullptr) {
+        // Clearing query_ BEFORE cancel is load-bearing, not tidiness.
+        // hyperdht_query_cancel() fires on_done (with HYPERDHT_ERR_CANCELLED),
+        // and it may do so synchronously from inside this call. That reaches
+        // mutable_done_cb, which frees query_ when it is non-null. Nulling it
+        // first makes that guard fail, so the free below is the only one.
         hyperdht_query_t* q = query_;
         query_ = nullptr;
         hyperdht_query_cancel(q);
