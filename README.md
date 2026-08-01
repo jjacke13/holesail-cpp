@@ -78,9 +78,11 @@ The 1.17 GB virtual is V8 reserving address space — harmless on 64-bit, fatal 
 For reference, the Python port of holesail on the same box sits at **20.9 MB RSS**,
 1 thread — between the two, as an interpreter with no JIT should.
 
-`nix build .#holesail-aarch64-static` produces a binary you can `scp` onto any aarch64
-Linux box — Pi Zero 2 W upward — with **zero runtime dependencies**: no nix, no Node, no
-libuv or libsodium needed on the target.
+`nix build .#holesail-aarch64-static` and `.#holesail-x86_64-static` produce binaries you
+can `scp` onto any aarch64 or x86-64 Linux box — Pi Zero 2 W upward — with **zero runtime
+dependencies**: no nix, no Node, no libuv or libsodium needed on the target. Both are
+attached to every [release](https://github.com/jjacke13/holesail-cpp/releases), so the
+install is `curl` + `chmod +x`.
 
 ## Build
 
@@ -99,6 +101,7 @@ Packages:
 ```bash
 nix build .#default                    # result/bin/holesail for the host
 nix build .#holesail-aarch64-static    # aarch64 musl, fully static — scp onto a Pi, run it
+nix build .#holesail-x86_64-static     # x86-64 musl, fully static — same deal on a VPS
 ```
 
 ### Plain CMake

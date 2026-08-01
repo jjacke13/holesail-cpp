@@ -48,25 +48,50 @@
 
       packages = forAll (system: pkgs:
         let
-          # aarch64, musl, fully static — one binary to scp onto a Raspberry Pi
-          # with no runtime deps at all. hyperdht-cpp only publishes native
-          # package outputs, so its shared builder is instantiated here against
-          # the cross set (same expression its own flake uses).
+          # One musl, fully-static target — a single binary to scp onto a host
+          # with no runtime deps at all, and no nix needed there. hyperdht-cpp
+          # only publishes native package outputs, so its shared builder is
+          # instantiated here against the cross set (the same expression its
+          # own flake uses).
           #
-          # NOT `pkgs.pkgsCross.aarch64-multiplatform.pkgsStatic`: that set makes
-          # the BUILD-platform tools static-musl too, and nixpkgs 25.11's static
+          # NOT `pkgs.pkgsCross.<target>.pkgsStatic`: that set makes the
+          # BUILD-platform tools static-musl too, and nixpkgs 25.11's static
           # cmake fails to bootstrap ("CMake Error: Unknown argument
           # --disable-shared"). Declaring the musl target as `crossSystem`
           # instead keeps cmake/ninja native and only the target static.
-          staticPkgs = import nixpkgs {
-            inherit system;
-            crossSystem = { config = "aarch64-unknown-linux-musl"; isStatic = true; };
-          };
-          hyperdhtStatic = (import "${hyperdht-cpp}/nix/lib.nix" {
-            pkgs = staticPkgs;
-            libudx = hyperdht-cpp.inputs.libudx;
-            src = hyperdht-cpp;
-          }).mkHyperdht { };
+          # Diagnostic: `pkgsStatic.cmake.__spliced.buildHost.name` is
+          # `cmake-static-...-musl`, the crossSystem one is plain `cmake`.
+          #
+          # This holds for x86_64 too, even when it matches the build platform:
+          # the triple differs from the default `-gnu` one, so nix still treats
+          # it as cross and the native toolchain is preserved.
+          mkStatic = { arch, blurb }:
+            let
+              staticPkgs = import nixpkgs {
+                inherit system;
+                crossSystem = {
+                  config = "${arch}-unknown-linux-musl";
+                  isStatic = true;
+                };
+              };
+              hyperdhtStatic = (import "${hyperdht-cpp}/nix/lib.nix" {
+                pkgs = staticPkgs;
+                libudx = hyperdht-cpp.inputs.libudx;
+                src = hyperdht-cpp;
+              }).mkHyperdht { };
+            in
+            staticPkgs.stdenv.mkDerivation {
+              pname = "holesail-cpp-${arch}-static";
+              version = "0.1.1";
+              src = self;
+              nativeBuildInputs = [ staticPkgs.cmake staticPkgs.ninja staticPkgs.pkg-config ];
+              buildInputs = [ staticPkgs.libsodium staticPkgs.libuv hyperdhtStatic ];
+              # Tests are not built: GoogleTest would have to be linked statically
+              # for a host that may not even be able to run them. The native lane
+              # gates them instead.
+              cmakeFlags = [ "-DHOLESAIL_BUILD_TESTS=OFF" "-DCMAKE_BUILD_TYPE=Release" ];
+              meta.description = "holesail CLI — ${arch} fully-static build ${blurb}";
+            };
         in
         {
           default = pkgs.stdenv.mkDerivation {
@@ -81,16 +106,17 @@
             cmakeFlags = [ "-DHOLESAIL_BUILD_TESTS=OFF" ];
           };
 
-          holesail-aarch64-static = staticPkgs.stdenv.mkDerivation {
-            pname = "holesail-cpp-aarch64-static";
-            version = "0.1.1";
-            src = self;
-            nativeBuildInputs = [ staticPkgs.cmake staticPkgs.ninja staticPkgs.pkg-config ];
-            buildInputs = [ staticPkgs.libsodium staticPkgs.libuv hyperdhtStatic ];
-            # Tests are not built: GoogleTest would have to be linked statically
-            # for a host that cannot run them anyway. The native lane gates them.
-            cmakeFlags = [ "-DHOLESAIL_BUILD_TESTS=OFF" "-DCMAKE_BUILD_TYPE=Release" ];
-            meta.description = "holesail CLI — aarch64 fully-static build for Raspberry Pi class hardware";
+          holesail-aarch64-static = mkStatic {
+            arch = "aarch64";
+            blurb = "for Raspberry Pi class hardware";
+          };
+
+          # The x86-64 counterpart. Without it the only thing an ordinary Linux
+          # server or desktop could do was build from source through nix, which
+          # is a far higher bar than `curl` + `chmod +x`.
+          holesail-x86_64-static = mkStatic {
+            arch = "x86_64";
+            blurb = "for x86-64 Linux servers and desktops";
           };
         });
     };
