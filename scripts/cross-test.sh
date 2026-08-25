@@ -63,9 +63,17 @@ dump() {
     echo "--- $1 client log ---"; [ -s "$3" ] && strip_ansi "$3" | tail -n 25 || echo "(empty)"
 }
 
-# run_case <name> <secure|public> <cpp|js server> <cpp|js client> <local port>
+# run_case <name> <secure|public> <cpp|js server> <cpp|js client> <local port> [host]
+#
+# `host` is what the server publishes in its DHT record; it defaults to
+# 127.0.0.1. When it is anything else the client deliberately omits --host, so
+# it binds whatever the record told it to. Every case pinned --host 127.0.0.1
+# on both ends until 2026-08-06, which is why a hostname was never once
+# exercised and a JS server publishing {"host":"localhost"} took down every
+# client here with a bare "Error: invalid argument".
 run_case() {
     local name=$1 mode=$2 server=$3 client=$4 local_port=$5
+    local host=${6:-127.0.0.1}
     local slog="$workdir/$name.server.log" clog="$workdir/$name.client.log"
     local key url code
     : >"$clog"
@@ -73,9 +81,9 @@ run_case() {
 
     echo "=== $name: $server server <-> $client client, $mode ==="
     if [ "$mode" = secure ]; then
-        "$(bin_for "$server")" --live "$ORIGIN_PORT" --host 127.0.0.1 --key "$key" >"$slog" 2>&1 &
+        "$(bin_for "$server")" --live "$ORIGIN_PORT" --host "$host" --key "$key" >"$slog" 2>&1 &
     else
-        "$(bin_for "$server")" --live "$ORIGIN_PORT" --host 127.0.0.1 --public >"$slog" 2>&1 &
+        "$(bin_for "$server")" --live "$ORIGIN_PORT" --host "$host" --public >"$slog" 2>&1 &
     fi
     local server_pid=$!
     pids+=("$server_pid")
@@ -96,7 +104,12 @@ run_case() {
         return 1
     fi
 
-    "$(bin_for "$client")" --connect "$url" --port "$local_port" --host 127.0.0.1 >"$clog" 2>&1 &
+    if [ "$host" = 127.0.0.1 ]; then
+        "$(bin_for "$client")" --connect "$url" --port "$local_port" --host 127.0.0.1 >"$clog" 2>&1 &
+    else
+        # No --host: the client must bind whatever host the record carries.
+        "$(bin_for "$client")" --connect "$url" --port "$local_port" >"$clog" 2>&1 &
+    fi
     local client_pid=$!
     pids+=("$client_pid")
     sleep "$CLIENT_WAIT"
@@ -169,6 +182,10 @@ record cpp-js-secure  run_case cpp-js-secure  secure cpp js  18082
 record js-cpp-secure  run_case js-cpp-secure  secure js  cpp 18083
 record cpp-js-public  run_case cpp-js-public  public cpp js  18084
 record js-cpp-public  run_case js-cpp-public  public js  cpp 18085
+# The regression case: a JS server publishing a NAME, and a C++ client that
+# takes the host straight from the record. This is the shape that failed in the
+# field on v0.1.1.
+record js-cpp-hostname run_case js-cpp-hostname secure js cpp 18086 localhost
 record lookup         lookup_case
 
 echo

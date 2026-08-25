@@ -29,6 +29,7 @@ target_compile_options(holesail_lib PRIVATE -Wall -Wextra)
 # Every unit of the library, registered up front so a task that fills one of
 # these files never has to touch this file.
 target_sources(holesail_lib PRIVATE
+    src/addr.cpp
     src/keys.cpp
     src/record.cpp
     src/logger.cpp
@@ -85,6 +86,7 @@ if(HOLESAIL_BUILD_TESTS)
 
     # Every suite, registered up front — see the note on target_sources above.
     holesail_add_test(test_smoke)
+    holesail_add_test(test_addr)
     holesail_add_test(test_keys)
     holesail_add_test(test_record)
     holesail_add_test(test_logger)

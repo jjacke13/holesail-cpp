@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Part of holesail-cpp — a C++ port of holesail (https://github.com/holesail/holesail)
 #include "holesail/pipe.hpp"
+#include "holesail/addr.hpp"
 
 #include <cstring>
 
@@ -41,7 +42,7 @@ int TcpPipe::connect(const std::string& host, uint16_t port,
     uv_tcp_nodelay(tcp_, 1);
 
     struct sockaddr_in addr;
-    rc = uv_ip4_addr(host.c_str(), port, &addr);
+    rc = resolve_ip4(loop_, host, port, &addr);
     if (rc != 0) {
         logger_.error("Invalid local address " + host);
         destroy();
@@ -279,7 +280,7 @@ int TcpProxy::listen(const std::string& host, uint16_t port,
     on_connection_ = std::move(on_connection);
 
     struct sockaddr_in addr;
-    rc = uv_ip4_addr(host.c_str(), port, &addr);
+    rc = resolve_ip4(loop_, host, port, &addr);
     if (rc != 0) { close(); return rc; }
 
     rc = uv_tcp_bind(handle_, reinterpret_cast<const struct sockaddr*>(&addr), 0);
