@@ -1,5 +1,7 @@
 # holesail-cpp
 
+[![CI](https://github.com/jjacke13/holesail-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/jjacke13/holesail-cpp/actions/workflows/ci.yml)
+
 A C++20 reimplementation of [holesail](https://github.com/holesail/holesail) 2.4.1 — the
 peer-to-peer TCP/UDP proxy — on top of [hyperdht-cpp](https://github.com/jjacke13/hyperdht-cpp)
 instead of Node.js.
@@ -93,7 +95,7 @@ nix develop                                      # cmake, ninja, libsodium, libu
                                                  # hyperdht-cpp, plus python3/curl/node
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-cd build && ctest --output-on-failure            # 11 suites, no network needed
+cd build && ctest --output-on-failure            # 12 suites, no network needed
 ```
 
 Packages:
@@ -103,6 +105,23 @@ nix build .#default                    # result/bin/holesail for the host
 nix build .#holesail-aarch64-static    # aarch64 musl, fully static — scp onto a Pi, run it
 nix build .#holesail-x86_64-static     # x86-64 musl, fully static — same deal on a VPS
 ```
+
+### CI
+
+Every push and PR runs `.github/workflows/ci.yml`: the 12 suites in Release **and**
+under ASan/UBSan, both fully-static binaries built and checked (right machine, really
+static, no dynamic deps), and a guard that the four version strings agree with each
+other and with the tag. The sanitizer lane is the one that matters most — the crash
+that bit this project in the field only appeared in Release, where libudx compiles its
+guarding assert out.
+
+`scripts/cross-test.sh` is deliberately **not** a merge gate: it needs the public DHT
+and will flake. Run it before a release.
+
+Tagging `v*` runs `.github/workflows/release.yml`, which rebuilds both statics, refuses
+to publish if the tag disagrees with `src/cli.cpp`, and attaches them with a combined
+`SHA256SUMS.txt`. Note the aarch64 binary is cross-compiled and never executed in CI —
+only real hardware proves that one runs.
 
 ### Plain CMake
 

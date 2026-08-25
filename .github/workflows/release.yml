@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach assets to (e.g. v0.1.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Assembling release assets by hand is the most error-prone step in shipping
+  # this project: copy the right store path, rename it, checksum it, upload it.
+  # A slip there publishes the wrong bytes under a right-looking checksum, and
+  # nothing downstream would notice. This does it the same way every time.
+  # ---------------------------------------------------------------------------
+  assets:
+    name: build ${{ matrix.arch }} static
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-static-${{ matrix.arch }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-static-${{ matrix.arch }}-
+          gc-max-store-size-linux: 4G
+
+      - name: Resolve the version
+        id: v
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          src=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' src/cli.cpp)
+          # Refuse to publish a binary whose --version disagrees with its filename.
+          [ "$version" = "$src" ] || { echo "::error::tag $tag != source version $src"; exit 1; }
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: nix build .#holesail-${{ matrix.arch }}-static
+
+      - name: Verify and stage
+        run: |
+          bin=result/bin/holesail
+          case "${{ matrix.arch }}" in
+            x86_64)  want='x86-64' ;;
+            aarch64) want='ARM aarch64' ;;
+          esac
+          file "$bin"
+          file "$bin" | grep -q "$want"             || { echo "::error::wrong machine"; exit 1; }
+          file "$bin" | grep -q 'statically linked' || { echo "::error::not static"; exit 1; }
+          if ldd "$bin" 2>&1 | grep -qv 'not a dynamic executable'; then
+            echo "::error::binary has dynamic dependencies"; exit 1
+          fi
+
+          mkdir -p dist
+          out="dist/holesail-${{ steps.v.outputs.tag }}-${{ matrix.arch }}-linux-static"
+          install -m755 "$bin" "$out"
+
+          # The native binary must actually run and report the tagged version.
+          # The cross one cannot be executed here — `file` above is all we get.
+          if [ "${{ matrix.arch }}" = x86_64 ]; then
+            got=$("$out" --version)
+            [ "$got" = "${{ steps.v.outputs.version }}" ] \
+              || { echo "::error::binary reports $got, expected ${{ steps.v.outputs.version }}"; exit 1; }
+          fi
+
+          ( cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256" )
+          cat "$out.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          merge-multiple: true
+
+      - name: Assemble SHA256SUMS
+        id: sums
+        run: |
+          cd staged
+          # One combined file, in a stable order, from the per-arch sums the
+          # build jobs produced — never recomputed here, so what is published
+          # is the checksum the job that built the binary actually saw.
+          cat ./*.sha256 | sort -k2 > SHA256SUMS.txt
+          rm -f ./*.sha256
+          cat SHA256SUMS.txt
+          ls -l
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # Re-running on an existing tag replaces the assets but leaves the
+            # notes alone — they are hand-written and must not be clobbered.
+            gh release upload "$tag" staged/* --clobber
+          else
+            gh release create "$tag" \
+              --title "$tag" \
+              --generate-notes \
+              staged/*
+          fi
+          gh release view "$tag" --json assets --jq '.assets[] | "\(.name)  \(.size)B"'

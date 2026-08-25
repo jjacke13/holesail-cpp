@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Unit + integration, twice: once as we ship it (Release) and once under
+  # sanitizers. The sanitizer lane is the one that earns its keep — the double
+  # udx_stream_destroy that crashed in the field only bit in Release, where
+  # libudx's guarding assert is compiled out, and no Release run would have
+  # caught it. ASan/UBSan see it in Debug.
+  # ---------------------------------------------------------------------------
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: release
+            preset: >-
+              -DCMAKE_BUILD_TYPE=Release
+          - name: asan-ubsan
+            preset: >-
+              -DCMAKE_BUILD_TYPE=Debug
+              -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+              -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-test-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-test-
+          gc-max-store-size-linux: 2G
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-test-
+          purge-created: 0
+          purge-last-accessed: P7D
+          purge-primary-key: never
+
+      - name: Configure and build
+        run: |
+          nix develop --command bash -c '
+            cmake -S . -B build -G Ninja ${{ matrix.preset }}
+            cmake --build build
+          '
+
+      # The suppressions are scoped to hyperdht/libudx/libuv frames only, so a
+      # leak introduced in THIS repo still fails the run. See test/lsan.supp.
+      - name: Test
+        env:
+          LSAN_OPTIONS: suppressions=${{ github.workspace }}/test/lsan.supp
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: nix develop --command ctest --test-dir build --output-on-failure
+
+  # ---------------------------------------------------------------------------
+  # The statics are what people actually download, and they have broken on
+  # their own before (pkgsStatic bootstrapping a static-musl cmake). Build both
+  # every time so a packaging break surfaces here and not at tag time.
+  #
+  # NOTE: GitHub runners are x86-64. The aarch64 binary is cross-compiled and
+  # never executed anywhere in CI — only `file` confirms its shape. Running it
+  # still requires real hardware.
+  # ---------------------------------------------------------------------------
+  static:
+    name: static (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-static-${{ matrix.arch }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-static-${{ matrix.arch }}-
+          # Larger than the test lane: a musl cross toolchain is a big closure,
+          # and GitHub caps a repo at 10 GB across ALL caches. If the lanes start
+          # evicting each other, drop this before touching anything else.
+          gc-max-store-size-linux: 4G
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-static-${{ matrix.arch }}-
+          purge-created: 0
+          purge-last-accessed: P7D
+          purge-primary-key: never
+
+      - name: Build
+        run: nix build .#holesail-${{ matrix.arch }}-static
+
+      - name: Verify it is a static ELF for the right machine
+        run: |
+          bin=result/bin/holesail
+          file "$bin"
+          case "${{ matrix.arch }}" in
+            x86_64)  want='x86-64' ;;
+            aarch64) want='ARM aarch64' ;;
+          esac
+          file "$bin" | grep -q "$want"            || { echo "::error::wrong machine, expected $want"; exit 1; }
+          file "$bin" | grep -q 'statically linked' || { echo "::error::not statically linked"; exit 1; }
+          # A dynamic binary here means the static build silently regressed to a
+          # normal one, which `file` alone would still call an ELF executable.
+          if ldd "$bin" 2>&1 | grep -qv 'not a dynamic executable'; then
+            echo "::error::binary has dynamic dependencies"; ldd "$bin"; exit 1
+          fi
+
+      # Only the native one can actually run on the runner.
+      - name: Smoke-run (x86_64 only)
+        if: matrix.arch == 'x86_64'
+        run: |
+          ./result/bin/holesail --version
+          ./result/bin/holesail --help > /dev/null
+
+  # ---------------------------------------------------------------------------
+  # Four files carry the version and they have drifted twice. On a tag build,
+  # refuse to proceed unless every one of them matches the tag.
+  # ---------------------------------------------------------------------------
+  version:
+    name: version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: All four version strings agree
+        run: |
+          cli=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' src/cli.cpp)
+          cml=$(sed -n 's/^project(holesail-cpp VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          # flake.nix carries one per package; both must agree with the rest.
+          mapfile -t flake < <(sed -n 's/.*version = "\([0-9.]*\)";.*/\1/p' flake.nix)
+          echo "cli=$cli cmake=$cml flake=${flake[*]}"
+          for v in "$cml" "${flake[@]}"; do
+            [ "$v" = "$cli" ] || { echo "::error::version mismatch: $v != $cli"; exit 1; }
+          done
+
+      - name: Tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          cli=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' src/cli.cpp)
+          [ "$tag" = "$cli" ] || { echo "::error::tag v$tag != source version $cli"; exit 1; }
+          echo "tag v$tag matches source"
