@@ -27,11 +27,11 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@v22
 
       - uses: nix-community/cache-nix-action@v7
         with:
@@ -82,7 +82,7 @@ jobs:
           ( cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256" )
           cat "$out.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: static-${{ matrix.arch }}
           path: dist/
@@ -93,11 +93,11 @@ jobs:
     needs: assets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: staged
           merge-multiple: true
