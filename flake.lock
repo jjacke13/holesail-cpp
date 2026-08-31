@@ -27,11 +27,11 @@
         "nixpkgs-esp-dev": "nixpkgs-esp-dev"
       },
       "locked": {
-        "lastModified": 1787387904,
-        "narHash": "sha256-1NXlQPWGdFJTdXvMIdgC01D3PJAtk2bKToeqRkP43/w=",
+        "lastModified": 1788197177,
+        "narHash": "sha256-anXY96M32PCH2NH0GPe6DZEbSzxTPCz4feIobSuxbtQ=",
         "owner": "jjacke13",
         "repo": "hyperdht-cpp",
-        "rev": "9580f99b5ce410448163a264e0207e3f825f83c8",
+        "rev": "d6fae6eaab571405b504fb9928ec95ce74e128b5",
         "type": "github"
       },
       "original": {
