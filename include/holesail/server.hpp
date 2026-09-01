@@ -74,8 +74,14 @@ private:
     static void listening_cb(void* userdata);
     static void refresh_cb(uv_timer_t* timer);
 
+    // Anything the local service produces before the encrypted stream has
+    // finished its header exchange is buffered here; past this it is dropped.
+    // Same budget as the client's identically-named cap.
+    static constexpr size_t kMaxPendingBytes = 256 * 1024;
+
     // Encrypted-stream callbacks. `userdata` is the boxed strong reference to
     // the Conn; stream_close_cb is the one that gives it back.
+    static void stream_open_cb(void* userdata);
     static void stream_data_cb(const uint8_t* data, size_t len, void* userdata);
     static void stream_close_cb(void* userdata);
     static void drain_cb(hyperdht_stream_t* stream, void* userdata);

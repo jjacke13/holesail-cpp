@@ -7,11 +7,13 @@
 
 #include <sodium.h>
 
+#include <functional>
 #include <algorithm>
 #include <optional>
 #include <set>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace holesail {
 namespace {
@@ -51,6 +53,26 @@ struct HolesailServer::Conn {
     std::unique_ptr<TcpPipe> tcp;
     std::unique_ptr<UdpPipe> udp;
     std::set<DrainCtx*> drains;            // writes still awaiting an ack
+
+    // The encrypted stream is NOT writable the moment hyperdht_stream_open()
+    // returns — it becomes writable when the header exchange completes and
+    // on_open fires. Until then hyperdht_stream_write() returns -1, and
+    // TcpPipe treats a negative write as fatal and destroys the connection.
+    //
+    // That window is invisible for a client-speaks-first protocol like HTTP,
+    // because we have nothing to send until the request arrives. It is fatal
+    // for a server-speaks-first one — sshd emits its banner the instant we
+    // connect, and over a real holepunched path the header exchange is still
+    // in flight, so the banner write failed and the connection was torn down
+    // silently. Buffer instead, and flush in stream_open_cb.
+    bool stream_open = false;
+    std::vector<uint8_t> pending;
+    // Drain callbacks withheld while buffering. Not calling them is what makes
+    // TcpPipe apply backpressure to the local socket instead of dropping, so
+    // they must be fired once the flush lands. A Conn torn down before the
+    // stream opens simply discards them — the same thing hyperdht does with a
+    // drain callback whose stream closed before the ack.
+    std::vector<std::function<void()>> pending_drains;
 
     ~Conn();
 };
@@ -250,6 +272,29 @@ StreamSide HolesailServer::make_side(Conn* conn) {
     StreamSide side;
     side.write = [conn](const uint8_t* data, size_t len,
                         std::function<void()> on_drain) {
+        // Not writable until the header exchange completes — see Conn::pending.
+        // `data` is borrowed for this call only, so it has to be copied.
+        //
+        // JS parity: `connPiper` does `connection.write(d) || (loc.pause(),
+        // connection.once('drain', () => loc.resume()))`. A Node duplex buffers
+        // until the stream is ready and never fails the write; backpressure is
+        // the `false` return plus a later `drain`. So we buffer and withhold
+        // the drain callback rather than dropping — withholding it is exactly
+        // what makes TcpPipe stop reading once its unacked count passes
+        // kStreamHighWaterMark, which pushes back on the local socket instead
+        // of losing its bytes. stream_open_cb fires the withheld drains.
+        if (!conn->stream_open) {
+            if (conn->pending.size() + len > kMaxPendingBytes) {
+                // Backstop only. TCP never gets here: TcpPipe stops reading at
+                // kStreamHighWaterMark first, and that is the same 256 KiB.
+                // UDP has no such brake, and a dropped datagram is what UDP
+                // promises anyway.
+                return 1;
+            }
+            conn->pending.insert(conn->pending.end(), data, data + len);
+            if (on_drain) conn->pending_drains.push_back(std::move(on_drain));
+            return 1;
+        }
         // Every hyperdht_stream_* call below tolerates a null stream, which is
         // what a closed connection leaves behind.
         if (!on_drain) return hyperdht_stream_write(conn->stream, data, len);
@@ -300,7 +345,7 @@ void HolesailServer::connection_cb(const hyperdht_connection_t* c, void* userdat
     auto conn = std::make_shared<Conn>();
     auto* box = new std::shared_ptr<Conn>(conn);   // reference A
     hyperdht_stream_t* stream = hyperdht_stream_open(
-        self->dht_, c, nullptr, &stream_data_cb, &stream_close_cb, box);
+        self->dht_, c, &stream_open_cb, &stream_data_cb, &stream_close_cb, box);
     if (stream == nullptr) {
         delete box;
         self->logger_.error("Failed to open a stream for an inbound connection");
@@ -322,6 +367,38 @@ void HolesailServer::connection_cb(const hyperdht_connection_t* c, void* userdat
         // libuv queues writes issued while the connect is still in flight, so
         // there is no need to hold the stream back until the local side is up.
         raw->tcp->connect(self->config_.local_host, self->config_.local_port, nullptr);
+    }
+}
+
+// The header exchange has completed and the stream is finally writable. Flush
+// whatever the local service greeted us with in the meantime, in order, before
+// anything else reaches the wire.
+//
+// Note this does NOT own the box — stream_close_cb is what gives it back.
+void HolesailServer::stream_open_cb(void* userdata) {
+    auto* box = static_cast<std::shared_ptr<Conn>*>(userdata);
+    if (box == nullptr || !*box) return;
+    Conn* conn = box->get();
+
+    conn->stream_open = true;
+
+    if (!conn->pending.empty()) {
+        const auto buffered = std::move(conn->pending);
+        conn->pending.clear();
+        if (hyperdht_stream_write(conn->stream, buffered.data(), buffered.size()) < 0) {
+            // Nothing useful left to do: the pipes see the same failure on
+            // their next write and tear the connection down the normal way.
+            conn->pending_drains.clear();
+            return;
+        }
+    }
+
+    // Release the backpressure last, and only after the bytes are away, so a
+    // resumed local socket cannot overtake the greeting it was queued behind.
+    const auto drains = std::move(conn->pending_drains);
+    conn->pending_drains.clear();
+    for (const auto& drain : drains) {
+        if (drain) drain();
     }
 }
 

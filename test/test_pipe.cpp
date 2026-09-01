@@ -396,3 +396,121 @@ TEST(TcpPipe, PausesTheStreamAtTheHighWaterMarkAndResumesOnDrain) {
     uv_run(&loop, UV_RUN_DEFAULT);
     EXPECT_EQ(uv_loop_close(&loop), 0);
 }
+
+// ---------------------------------------------------------------------------
+// Regression guard for the server-speaks-first bug (v0.2).
+//
+// hyperdht_stream_write() returns -1 until the encrypted stream's header
+// exchange completes, and TcpPipe treats any negative write as fatal. On the
+// server that combination silently killed every connection whose local service
+// greets first: sshd emits its banner the instant we connect, while over a real
+// holepunched path the header exchange is still in flight. HTTP hid it, because
+// there we have nothing to send until the request arrives.
+//
+// HolesailServer::make_side now buffers in that window and withholds the drain
+// callback, mirroring what a Node duplex does for the JS original
+// (`connection.write(d) || (loc.pause(), ...)` in connPiper). This pins the two
+// halves of that contract that live in TcpPipe: a "buffered" write must not be
+// treated as failure, and withholding its drain must produce backpressure
+// rather than data loss.
+// ---------------------------------------------------------------------------
+TEST(TcpPipe, PreOpenBufferingLosesNoDataAndResumesOnFlush) {
+    uv_loop_t loop;
+    ASSERT_EQ(uv_loop_init(&loop), 0);
+    EchoServer echo(&loop);
+    auto logger = silent_logger();
+
+    // Exactly the shape HolesailServer::make_side now has.
+    bool stream_open = false;
+    std::vector<uint8_t> pending;
+    std::vector<std::function<void()>> withheld;
+    std::vector<uint8_t> delivered;
+
+    StreamSide side;
+    side.write = [&](const uint8_t* d, size_t n, std::function<void()> on_drain) {
+        if (!stream_open) {
+            pending.insert(pending.end(), d, d + n);
+            if (on_drain) withheld.push_back(std::move(on_drain));
+            return 1;   // accepted, not yet on the wire
+        }
+        delivered.insert(delivered.end(), d, d + n);
+        if (on_drain) on_drain();
+        return 1;
+    };
+    side.pause = [] {};
+    side.resume = [] {};
+    side.close = [] {};
+
+    TcpPipe pipe(&loop, side, logger);
+    bool destroyed = false;
+    pipe.set_on_destroy([&] { destroyed = true; });
+    ASSERT_EQ(pipe.connect("127.0.0.1", echo.port, [](int err) { EXPECT_EQ(err, 0); }), 0);
+
+    // The local service greets before the stream is writable. Under the old
+    // code this write returned -1 and the pipe tore the connection down here.
+    const std::string greeting = "SSH-2.0-OpenSSH_10.5\r\n";
+    pipe.on_stream_data(reinterpret_cast<const uint8_t*>(greeting.data()), greeting.size());
+    for (int i = 0; i < 300 && pending.size() < greeting.size(); i++) {
+        uv_run(&loop, UV_RUN_NOWAIT);
+    }
+
+    EXPECT_FALSE(destroyed) << "pipe died on a pre-open write — the v0.2 bug is back";
+    EXPECT_EQ(std::string(pending.begin(), pending.end()), greeting)
+        << "greeting was lost before the stream opened";
+    EXPECT_TRUE(delivered.empty()) << "nothing may reach the wire before open";
+
+    // The header exchange completes: flush, then release the withheld drains.
+    stream_open = true;
+    delivered.insert(delivered.end(), pending.begin(), pending.end());
+    pending.clear();
+    const auto drains = std::move(withheld);
+    withheld.clear();
+    for (const auto& d : drains) d();
+
+    // Traffic keeps flowing afterwards, and in order behind the greeting.
+    const std::string after = "second";
+    pipe.on_stream_data(reinterpret_cast<const uint8_t*>(after.data()), after.size());
+    for (int i = 0; i < 300 && delivered.size() < greeting.size() + after.size(); i++) {
+        uv_run(&loop, UV_RUN_NOWAIT);
+    }
+
+    EXPECT_FALSE(destroyed);
+    EXPECT_EQ(std::string(delivered.begin(), delivered.end()), greeting + after)
+        << "bytes were lost or reordered across the flush";
+
+    pipe.destroy();
+    echo.close();
+    uv_run(&loop, UV_RUN_DEFAULT);
+    EXPECT_EQ(uv_loop_close(&loop), 0);
+}
+
+// The other half of the same story: a negative write really is fatal, which is
+// why the server must never let one happen in the pre-open window.
+TEST(TcpPipe, ANegativeWriteTearsTheConnectionDown) {
+    uv_loop_t loop;
+    ASSERT_EQ(uv_loop_init(&loop), 0);
+    EchoServer echo(&loop);
+    auto logger = silent_logger();
+
+    StreamSide side;
+    side.write = [](const uint8_t*, size_t, std::function<void()>) {
+        return -1;   // what hyperdht_stream_write returns before open
+    };
+    side.pause = [] {};
+    side.resume = [] {};
+    side.close = [] {};
+
+    TcpPipe pipe(&loop, side, logger);
+    bool destroyed = false;
+    pipe.set_on_destroy([&] { destroyed = true; });
+    ASSERT_EQ(pipe.connect("127.0.0.1", echo.port, [](int err) { EXPECT_EQ(err, 0); }), 0);
+
+    pipe.on_stream_data(reinterpret_cast<const uint8_t*>("greeting"), 8);
+    for (int i = 0; i < 300 && !destroyed; i++) uv_run(&loop, UV_RUN_NOWAIT);
+
+    EXPECT_TRUE(destroyed) << "a failed stream write must not be ignored";
+
+    echo.close();
+    uv_run(&loop, UV_RUN_DEFAULT);
+    EXPECT_EQ(uv_loop_close(&loop), 0);
+}
