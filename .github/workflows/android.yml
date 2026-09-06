@@ -1,0 +1,76 @@
+# Android (Termux) arm64 build.
+#
+# Separate from ci.yml on purpose: this lane cross-compiles four dependencies
+# from upstream git rather than from nixpkgs, so a bad day at libsodium's or
+# libuv's remote must not be able to red-X the merge gate.
+#
+# Runs on every branch — the whole point is to iterate on it before it is fit
+# to live on main.
+name: Android
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The runner preinstalls the NDK; scripts/build-android.sh picks it up
+      # from $ANDROID_NDK_ROOT. No download, and no nixpkgs cross set —
+      # the NDK's own CMake toolchain file is what upstream libsodium and
+      # libuv actually support.
+      - name: Show toolchain
+        run: |
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
+          test -f "$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake"
+          cmake --version | head -1
+          ninja --version
+
+      # libsodium + libuv + hyperdht are ~10 minutes and change only when the
+      # pinned revisions change, so key the cache on exactly those.
+      - name: Cache cross-built dependencies
+        uses: actions/cache@v4
+        with:
+          path: build-android/deps
+          key: android-deps-${{ runner.os }}-${{ hashFiles('flake.lock', 'scripts/build-android.sh') }}
+
+      - name: Install autotools (libsodium's android script needs them)
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool ninja-build
+
+      - name: Build
+        run: ./scripts/build-android.sh
+
+      # A wrong-arch or dynamically-linked-against-the-wrong-libc binary would
+      # otherwise only be discovered on the phone. Assert the shape here.
+      - name: Verify binary
+        run: |
+          BIN=build-android/holesail
+          file "$BIN"
+          file "$BIN" | grep -q 'ARM aarch64'   || { echo "not aarch64"; exit 1; }
+          file "$BIN" | grep -q 'ELF 64-bit'    || { echo "not ELF64"; exit 1; }
+          # Must be PIE: Android refuses to exec a non-PIE dynamic executable.
+          file "$BIN" | grep -q 'pie executable' || { echo "not PIE"; exit 1; }
+          # Must not need libc++_shared.so, which is not on a stock device.
+          if "$ANDROID_NDK_ROOT"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf \
+               -d "$BIN" | grep -q 'libc++_shared'; then
+            echo "links libc++_shared.so — ANDROID_STL=c++_static did not take"
+            exit 1
+          fi
+          "$ANDROID_NDK_ROOT"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf \
+            -d "$BIN" | grep NEEDED || true
+          ls -l "$BIN"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: holesail-android-arm64
+          path: build-android/holesail
+          if-no-files-found: error
