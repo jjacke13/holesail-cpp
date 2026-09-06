@@ -68,6 +68,16 @@ jobs:
           "$ANDROID_NDK_ROOT"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf \
             -d "$BIN" | grep NEEDED || true
           ls -l "$BIN"
+          # The NDK adds -g even in Release; an unstripped binary is ~30 MB
+          # against the desktop build's 3.5 MB. Catch a strip that silently
+          # did not run.
+          if file "$BIN" | grep -q 'not stripped'; then
+            echo "binary is not stripped"
+            exit 1
+          fi
+          SIZE=$(stat -c%s "$BIN")
+          echo "size: $SIZE bytes"
+          [ "$SIZE" -lt 8000000 ] || { echo "unexpectedly large: $SIZE bytes"; exit 1; }
 
       - uses: actions/upload-artifact@v7
         with:

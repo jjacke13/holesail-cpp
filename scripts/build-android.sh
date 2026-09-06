@@ -148,7 +148,16 @@ cmake_android -B "$OUT/build" -S "$ROOT" \
   -DHYPERDHT_LIBRARY="$HDHT_BUILD/libhyperdht.a" \
   -DUDX_LIBRARY="$HDHT_BUILD/libudx.a"
 ninja -C "$OUT/build" holesail
-
+# The NDK's toolchain file appends -g regardless of CMAKE_BUILD_TYPE, so a
+# Release build still carries full DWARF — 30 MB against the desktop build's
+# 3.5 MB. Strip the shipped copy and keep the unstripped one next to it in
+# build/ for symbolicating a crash.
+STRIP="$(echo "$NDK"/toolchains/llvm/prebuilt/*/bin/llvm-strip)"
+[ -x "$STRIP" ] || die "llvm-strip not found under $NDK"
 cp "$OUT/build/holesail" "$OUT/holesail"
+"$STRIP" "$OUT/holesail"
+
 log "built: $OUT/holesail"
+log "unstripped: $OUT/build/holesail"
 file "$OUT/holesail" || true
+ls -l "$OUT/build/holesail" "$OUT/holesail"
