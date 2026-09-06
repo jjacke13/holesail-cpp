@@ -88,9 +88,79 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+
+  # ---------------------------------------------------------------------------
+  # The Android binary cannot come from the `assets` matrix above: it is not a
+  # nix build and not static — it links bionic dynamically, which is the whole
+  # point (a static musl binary is killed by Android's seccomp filter). Same
+  # staging contract though: one binary plus its .sha256, so the publish job
+  # picks it up without knowing anything about Android.
+  # ---------------------------------------------------------------------------
+  android:
+    name: build android arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve the version
+        id: v
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="${tag#v}"
+          src=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' src/cli.cpp)
+          [ "$version" = "$src" ] || { echo "::error::tag $tag != source version $src"; exit 1; }
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install autotools (libsodium's android script needs them)
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool ninja-build
+
+      - name: Build
+        run: ./scripts/build-android.sh
+
+      - name: Verify and stage
+        run: |
+          bin=build-android/holesail
+          file "$bin"
+          file "$bin" | grep -q 'ARM aarch64'     || { echo "::error::wrong machine"; exit 1; }
+          file "$bin" | grep -q 'pie executable'  || { echo "::error::not PIE"; exit 1; }
+          # `grep stripped` would also match "not stripped" — invert it.
+          if file "$bin" | grep -q 'not stripped'; then
+            echo "::error::not stripped"; exit 1
+          fi
+          # Only stock bionic may be NEEDED. libc++_shared.so is not present on
+          # a device, so linking it would fail at exec time and nowhere earlier.
+          # Matched with `case`, not `grep -v`: an inverted grep here is easy to
+          # write so that it can never fire, and the failure mode is a check
+          # that silently passes forever.
+          readelf=$(echo "$ANDROID_NDK_ROOT"/toolchains/llvm/prebuilt/*/bin/llvm-readelf)
+          needed=$("$readelf" -d "$bin" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort -u)
+          echo "NEEDED: $needed"
+          [ -n "$needed" ] || { echo "::error::no NEEDED entries — readelf parse failed"; exit 1; }
+          for lib in $needed; do
+            case "$lib" in
+              libm.so|libdl.so|libc.so) ;;
+              *) echo "::error::unexpected shared library dependency: $lib"; exit 1 ;;
+            esac
+          done
+
+          mkdir -p dist
+          out="dist/holesail-${{ steps.v.outputs.tag }}-aarch64-android"
+          install -m755 "$bin" "$out"
+          ( cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256" )
+          cat "$out.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: static-android
+          path: dist/
+          if-no-files-found: error
+
   publish:
     name: publish release
-    needs: assets
+    needs: [assets, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

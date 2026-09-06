@@ -104,7 +104,18 @@ Packages:
 nix build .#default                    # result/bin/holesail for the host
 nix build .#holesail-aarch64-static    # aarch64 musl, fully static — scp onto a Pi, run it
 nix build .#holesail-x86_64-static     # x86-64 musl, fully static — same deal on a VPS
+
+# Android (Termux), arm64. Needs the NDK, not nix — see the note below.
+nix-shell nix/android-shell.nix --run ./scripts/build-android.sh
 ```
+
+**Android** gets its own build, not a musl static. Android runs every app process
+behind a seccomp allowlist shaped around bionic's syscall set, and a static musl
+binary is killed with `SIGSYS` on startup — Termux reports it as "Unknown signal 31".
+So the Android binary links bionic dynamically (`libm`, `libdl`, `libc`, nothing else)
+and comes out at ~1.7 MB, smaller than the musl statics. `scripts/build-android.sh`
+builds it with the NDK's own CMake toolchain file and runs unchanged in CI or in
+`nix-shell nix/android-shell.nix`.
 
 ### CI
 
@@ -118,10 +129,11 @@ guarding assert out.
 `scripts/cross-test.sh` is deliberately **not** a merge gate: it needs the public DHT
 and will flake. Run it before a release.
 
-Tagging `v*` runs `.github/workflows/release.yml`, which rebuilds both statics, refuses
-to publish if the tag disagrees with `src/cli.cpp`, and attaches them with a combined
-`SHA256SUMS.txt`. Note the aarch64 binary is cross-compiled and never executed in CI —
-only real hardware proves that one runs.
+Tagging `v*` runs `.github/workflows/release.yml`, which rebuilds both statics plus the
+Android arm64 binary, refuses to publish if the tag disagrees with `src/cli.cpp`, and
+attaches them with a combined `SHA256SUMS.txt`. Note the aarch64 binary is
+cross-compiled and never executed in CI — and neither is the Android one. Only real
+hardware proves those run.
 
 ### Plain CMake
 
