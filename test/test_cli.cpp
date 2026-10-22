@@ -4,6 +4,7 @@
 
 #include "holesail/cli.hpp"
 
+#include <algorithm>
 #include <vector>
 
 using namespace holesail;
@@ -115,6 +116,62 @@ TEST(RenderStarted, ClientLinesMatchTheJsWording) {
     EXPECT_NE(out.find("Access application on http://127.0.0.1:8989/"), std::string::npos);
     EXPECT_NE(out.find("Connected to key: "), std::string::npos);
     EXPECT_NE(out.find("NOTICE: TREAT PUBLIC STRING"), std::string::npos);
+    EXPECT_EQ(out.find("▄"), std::string::npos);
+}
+
+TEST(RenderQr, MatchesSmallModeBorderAndHalfBlocks) {
+    const auto qr = render_qr("hs://s000abc");
+    // Level L byte mode fits version 1: 21 modules, plus the two side borders.
+    std::string top;
+    for (int i = 0; i < 23; ++i) top += "▄";
+    EXPECT_EQ(qr.substr(0, top.size() + 1), top + "\n");
+    EXPECT_EQ(std::count(qr.begin(), qr.end(), '\n'), 12);
+    EXPECT_EQ(qr.find('\x1b'), std::string::npos);
+    size_t pos = top.size() + 1;
+    while (pos < qr.size()) {
+        const auto end = qr.find('\n', pos);
+        ASSERT_NE(end, std::string::npos);
+        const auto row = qr.substr(pos, end - pos);
+        EXPECT_EQ(row.substr(0, 3), "█");
+        EXPECT_EQ(row.substr(row.size() - 3), "█");
+        size_t columns = 0;
+        for (size_t x = 0; x < row.size(); ++columns) {
+            if (row[x] == ' ') ++x;
+            else {
+                const auto cell = row.substr(x, 3);
+                EXPECT_TRUE(cell == "█" || cell == "▀" || cell == "▄");
+                x += 3;
+            }
+        }
+        EXPECT_EQ(columns, 23u);
+        pos = end + 1;
+    }
+}
+
+TEST(RenderQr, OversizedKeysKeepThePrintedConnectionStringUsable) {
+    EXPECT_EQ(render_qr(std::string(3000, 'a')),
+              "QR code unavailable: connection string is too long.\n");
+}
+
+TEST(RenderStarted, OnlyServersAppendTheFullUrlQrAfterStartupText) {
+    for (const auto* protocol : {"tcp", "udp"}) {
+        for (const bool secure : {false, true}) {
+            Info info;
+            info.type = "server";
+            info.protocol = protocol;
+            info.secure = secure;
+            info.url = secure ? "hs://s000abc" : "hs://0000abc";
+            info.key = "abc";
+            const auto qr = render_qr(info.url);
+            const auto out = render_started(info);
+            ASSERT_GE(out.size(), qr.size());
+            EXPECT_EQ(out.substr(out.size() - qr.size()), qr);
+            EXPECT_LT(out.find(secure ? "NOTE:" : "NOTICE:"), out.find("▄"));
+            EXPECT_NE(qr, render_qr(info.key));
+            info.type = "client";
+            EXPECT_EQ(render_started(info).find("▄"), std::string::npos);
+        }
+    }
 }
 
 TEST(RenderHelp, ListsEveryImplementedCommand) {

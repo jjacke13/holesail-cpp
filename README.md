@@ -33,7 +33,7 @@ project — this repo only reimplements the client and server in C++.
 | Built on | [Pear](https://pears.com) / [HyperDHT](https://github.com/holepunchto/hyperdht) by Holepunch |
 
 **Use the original if you want the supported thing.** It has features this port does not
-(`--filemanager`, the desktop and mobile apps, the QR-code pairing flow), it is what the
+(`--filemanager`, the desktop and mobile apps), it is what the
 Holesail team maintains, and it runs anywhere Node does.
 
 This port exists for one reason: to run the same protocol on hardware where a Node runtime
@@ -51,7 +51,7 @@ ours to them.
 | | |
 |---|---|
 | **holesail 2.4.1 (JS)** | The reference implementation. Every behaviour here was derived by reading its source, and every divergence is listed below. Runtime: Node.js + `hyperdht`. |
-| **holesail-cpp** | This repo. A static library (`libholesail_lib.a`) plus a thin CLI (`holesail`). No Node, no JSON library, no CLI parser, no QR encoder — libsodium, libuv and hyperdht only. |
+| **holesail-cpp** | This repo. A static library (`libholesail_lib.a`) plus a thin CLI (`holesail`). No Node, JSON library or CLI parser. Terminal QR encoding is vendored; runtime dependencies remain libsodium, libuv and hyperdht only. |
 | **hyperdht-cpp** | The transport. holesail-cpp talks to it through its C API (`<hyperdht/hyperdht.h>`) and drives local sockets with `uv_tcp_t` / `uv_udp_t` on the DHT's own libuv loop. Single-threaded, callback-driven, no polling, no threads. |
 
 `libuv MUST be 1.51.x.` 1.52.0/1.52.1 carry a UDP `POLLERR` regression that silently wedges
@@ -370,10 +370,15 @@ target_link_libraries(my_app PRIVATE holesail_lib)   # brings hyperdht, libsodiu
 | # | Divergence | Rationale |
 |---|---|---|
 | D1 | `--filemanager` is **not implemented** | It requires porting `livefiles`, an HTTP file browser with auth and roles. `--filemanager` prints an explicit error and exits 2 rather than pretending. |
-| D2 | **No `cli-box` output box and no terminal QR code** | Would need a vendored QR encoder and box-drawing logic for no functional gain. The wording and the colours are identical; only the frame around them is gone. |
+| D2 | **No `cli-box` output box** | Startup text remains unboxed. Servers print the full connection URL as a terminal QR code afterward, like JS 2.4.1: small half-block mode, error correction L, no QR toggle. Nayuki's encoder can choose a different valid mask from JS; the payload and rendering style are the same. |
 | D3 | Client `--public` now means public mode | Bug fix — see Q1. |
 | D4 | Remote→local backpressure uses explicit stream pause/resume | JS gets it free from Node stream semantics; C++ needed two new hyperdht-cpp entry points (`hyperdht_stream_pause` / `_resume`). Same observable behaviour. |
 | D5 | UDP frames are capped at 65535 bytes; an oversized length header destroys the stream | JS buffers toward an unbounded 32-bit length. No legitimate UDP datagram exceeds 65507 bytes, so real traffic is unaffected. In C++ this is a memory-safety issue, not just an allocation-size one: `4 + frame_len` evaluates in `unsigned int`, so `0xFFFFFFFF + 4` wraps to `3`, bypasses the "frame incomplete" guard and hands the frame callback a 4 GiB out-of-bounds read. The cap is what prevents that; the addition is widened to `size_t` as well so the guard stays sound if the cap is ever raised. |
+
+If a custom connection string exceeds QR capacity, the CLI prints a QR warning
+and keeps the server and text URL available; the JS encoder instead throws.
+The vendored encoder and renderer notices are under `third_party/` and installed
+under `share/licenses/holesail-cpp/`.
 
 ## Reproduced upstream quirks
 

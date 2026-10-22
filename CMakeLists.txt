@@ -75,6 +75,7 @@ target_include_directories(holesail_lib PUBLIC
 target_link_libraries(holesail_lib PUBLIC
     ${HYPERDHT_TARGET} ${SODIUM_TARGET} ${UV_TARGET})
 target_compile_options(holesail_lib PRIVATE -Wall -Wextra)
+target_include_directories(holesail_lib PRIVATE third_party/qrcodegen)
 
 # Every unit of the library, registered up front so a task that fills one of
 # these files never has to touch this file.
@@ -88,7 +89,8 @@ target_sources(holesail_lib PRIVATE
     src/server.cpp
     src/client.cpp
     src/holesail.cpp
-    src/cli.cpp)
+    src/cli.cpp
+    third_party/qrcodegen/qrcodegen.cpp)
 
 add_executable(holesail app/main.cpp)
 target_link_libraries(holesail PRIVATE holesail_lib)
@@ -101,6 +103,12 @@ target_link_libraries(holesail PRIVATE holesail_lib)
 include(GNUInstallDirs)
 
 install(TARGETS holesail RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES third_party/qrcodegen/LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/holesail-cpp
+    RENAME qrcodegen-LICENSE)
+install(FILES third_party/qrcode-terminal/LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/holesail-cpp
+    RENAME qrcode-terminal-LICENSE)
 
 install(TARGETS holesail_lib
     EXPORT holesail-targets

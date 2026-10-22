@@ -314,7 +314,7 @@ Validation, messages and exit codes reproduce `validateInput.js`:
 | `--live` not a number | invalid-port error | 2 |
 | `--port` present but not a number | invalid-port error | 2 |
 
-Output on success: same wording and colors as `stdout.js`, without the box and QR:
+Output on success: same wording and colors as `stdout.js`, without the box:
 
 ```
 Holesail TCP Server Started
@@ -382,7 +382,7 @@ which is compatible as a dependency.
 | # | Divergence | Rationale |
 |---|---|---|
 | D1 | `--filemanager` is not implemented | Requires porting `livefiles`, an HTTP file browser with auth and roles. Out of scope. |
-| D2 | No `cli-box` output box, no terminal QR code | Would need a vendored QR encoder and box-drawing logic for no functional gain. Same text, same colors. |
+| D2 | No `cli-box` output box | Servers now append the full connection URL as a terminal QR (small half-block mode, level L, no toggle), matching JS 2.4.1. The vendored Nayuki encoder can select a different valid mask. Oversized URLs print a warning instead of throwing. |
 | D3 | Client `--public` now means public mode | Bug fix — see Q1 below. |
 | D4 | Remote→local backpressure uses stream pause/resume | JS gets this from Node stream semantics; C++ needs the new hyperdht API in §4. Same observable behavior. |
 | D5 | UDP frames are capped at 65535 bytes; an oversized length header destroys the stream | JS buffers toward an unbounded 32-bit length. No legitimate UDP datagram exceeds 65507 bytes, so real traffic is unaffected. **In C++ this is a memory-safety issue, not merely an allocation-size one** — confirmed by mutation-testing the cap out: `4 + frame_len` evaluates in `unsigned int`, so `0xFFFFFFFF + 4` wraps to `3`, bypasses the "frame incomplete" guard, and hands the frame callback a 4 GiB out-of-bounds read. The length check is what prevents it; the addition is additionally widened to `size_t` so the guard stays sound if the cap is ever raised. |

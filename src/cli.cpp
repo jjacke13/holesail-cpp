@@ -3,6 +3,7 @@
 #include "holesail/cli.hpp"
 
 #include "holesail/colors.hpp"
+#include "qrcodegen.hpp"
 
 #include <sodium.h>
 #include <uv.h>
@@ -453,7 +454,36 @@ std::string render_started(const Info& info) {
                : dim("   NOTICE: TREAT PUBLIC STRING LIKE YOU WOULD TREAT A DOMAIN NAME ON PUBLIC "
                      "SERVER, IF THERE IS ANYTHING PRIVATE ON IT, IT IS YOUR RESPONSIBILITY TO "
                      "PASSWORD PROTECT IT OR USE PRIVATE MODE   \n");
+    if (server) out += "\n" + render_qr(info.url);
     return out;
+}
+
+std::string render_qr(std::string_view url) {
+    // Small-mode renderer adapted from qrcode-terminal 0.12.0 (Apache-2.0).
+    // See third_party/qrcode-terminal for attribution and license.
+    using qrcodegen::QrCode;
+    // qrcode-terminal uses one byte segment at level L, without ECC boosting.
+    const auto segment = qrcodegen::QrSegment::makeBytes({url.begin(), url.end()});
+    try {
+        const auto qr = QrCode::encodeSegments({segment}, QrCode::Ecc::LOW, 1, 40, -1, false);
+        const int size = qr.getSize();
+        std::string out;
+        for (int x = 0; x < size + 2; ++x) out += "▄";
+        out += '\n';
+        // In small mode the foreground is light; unset lower modules pad the last row.
+        for (int y = 0; y < size; y += 2) {
+            out += "█";
+            for (int x = 0; x < size; ++x) {
+                const bool top = qr.getModule(x, y);
+                const bool bottom = qr.getModule(x, y + 1);
+                out += top ? (bottom ? " " : "▄") : (bottom ? "▀" : "█");
+            }
+            out += "█\n";
+        }
+        return out;
+    } catch (const qrcodegen::data_too_long&) {
+        return "QR code unavailable: connection string is too long.\n";
+    }
 }
 
 std::string render_lookup(const std::optional<LookupResult>& result) {

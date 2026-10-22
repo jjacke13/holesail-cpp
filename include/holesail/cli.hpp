@@ -48,9 +48,12 @@ Validation validate(const Args& args);
 // (divergence D1) and must not be advertised.
 std::string render_help(std::string_view topic);   // "", "live", "connect", "filemanager"
 
-// Port of `stdout.js` without the `cli-box` frame and the QR code (D2). Same
+// Port of `stdout.js` without the `cli-box` frame (D2). Same
 // wording, same colours, including the stacked resets that nesting produces.
 std::string render_started(const Info& info);
+
+// qrcode-terminal's small-mode rendering of the full connection URL, level L.
+std::string render_qr(std::string_view url);
 
 // The `--lookup` report, or the red miss line when no record was found.
 std::string render_lookup(const std::optional<LookupResult>& result);
