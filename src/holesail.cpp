@@ -17,10 +17,11 @@ namespace {
 // destroy -> uv_run -> free. A nested uv_run() is not an option (close() is
 // legal from inside a libuv callback, and lookup() tears down from inside a
 // DHT callback), so the drain is a short repeating timer instead: the first
-// tick calls destroy — outside any hyperdht callback — and the last one frees.
+// tick calls destroy — outside any hyperdht callback. Only after withdrawal
+// completes do we count the close-drain turns and free the storage.
 //
-// ponytail: a fixed tick count rather than a "loop is idle" probe. Teardown
-// nests two levels of uv_close at most; 16 turns is an order of magnitude more
+// shortcut: fixed close-drain turns; use explicit close completion if teardown grows.
+// Teardown nests two levels of uv_close at most; 16 turns is an order of magnitude more
 // than that and costs 16 ms once, at exit.
 constexpr int kDrainTurns = 16;
 
@@ -32,13 +33,20 @@ struct DhtReaper {
 
 void reap_tick(uv_timer_t* timer) {
     auto* reaper = static_cast<DhtReaper*>(timer->data);
-    if (reaper->turns_left == kDrainTurns) hyperdht_destroy(reaper->dht, nullptr, nullptr);
     if (--reaper->turns_left > 0) return;
 
     uv_timer_stop(timer);
     hyperdht_free(reaper->dht);
     uv_close(reinterpret_cast<uv_handle_t*>(timer),
              [](uv_handle_t* h) { delete static_cast<DhtReaper*>(h->data); });
+}
+
+void begin_reap(uv_timer_t* timer) {
+    auto* reaper = static_cast<DhtReaper*>(timer->data);
+    hyperdht_destroy(reaper->dht, [](void* data) {
+        auto* reaper = static_cast<DhtReaper*>(data);
+        uv_timer_start(&reaper->timer, &reap_tick, 0, 1);
+    }, reaper);
 }
 
 // Takes ownership of `dht`. The caller must have torn down everything that
@@ -48,7 +56,7 @@ void reap_dht(uv_loop_t* loop, hyperdht_t* dht) {
     auto* reaper = new DhtReaper{{}, dht, kDrainTurns};
     uv_timer_init(loop, &reaper->timer);
     reaper->timer.data = reaper;
-    uv_timer_start(&reaper->timer, &reap_tick, 0, 1);
+    uv_timer_start(&reaper->timer, &begin_reap, 0, 0);
 }
 
 // JS `new DHT()` — ephemeral, and bootstrapped against the canonical public

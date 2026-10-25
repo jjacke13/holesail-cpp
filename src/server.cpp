@@ -244,7 +244,7 @@ void HolesailServer::destroy() {
     conns_.clear();
 
     if (srv_ != nullptr) {
-        hyperdht_server_close_force(srv_, nullptr, nullptr);
+        hyperdht_server_close(srv_, nullptr, nullptr);
         srv_ = nullptr;
     }
     state_ = "destroyed";
