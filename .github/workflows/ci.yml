@@ -140,7 +140,8 @@ jobs:
           cli=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' src/cli.cpp)
           cml=$(sed -n 's/^project(holesail-cpp VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           # flake.nix carries one per package; both must agree with the rest.
-          mapfile -t flake < <(sed -n 's/.*version = "\([0-9.]*\)";.*/\1/p' flake.nix)
+          mapfile -t flake < <(sed -n '/pname = "holesail-cpp/,/version = /s/.*version = "\([0-9.]*\)";.*/\1/p' flake.nix)
+          [ "${#flake[@]}" -eq 2 ] || { echo "::error::expected two Holesail package versions"; exit 1; }
           echo "cli=$cli cmake=$cml flake=${flake[*]}"
           for v in "$cml" "${flake[@]}"; do
             [ "$v" = "$cli" ] || { echo "::error::version mismatch: $v != $cli"; exit 1; }
