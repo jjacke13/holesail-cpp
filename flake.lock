@@ -20,40 +20,77 @@
     },
     "hyperdht-cpp": {
       "inputs": {
+        "libsodium": "libsodium",
         "libudx": "libudx",
+        "libuv": "libuv",
         "nixpkgs": [
           "nixpkgs"
         ],
         "nixpkgs-esp-dev": "nixpkgs-esp-dev"
       },
       "locked": {
-        "lastModified": 1788197177,
-        "narHash": "sha256-anXY96M32PCH2NH0GPe6DZEbSzxTPCz4feIobSuxbtQ=",
+        "lastModified": 1793261864,
+        "narHash": "sha256-Pb9LVwDmFdXbTtMv/h83JRXWEXEiRV8DSSxWGD3RxVA=",
         "owner": "jjacke13",
         "repo": "hyperdht-cpp",
-        "rev": "d6fae6eaab571405b504fb9928ec95ce74e128b5",
+        "rev": "7967fa909e9145b91483c087774b91267d935feb",
         "type": "github"
       },
       "original": {
         "owner": "jjacke13",
         "repo": "hyperdht-cpp",
+        "rev": "7967fa909e9145b91483c087774b91267d935feb",
+        "type": "github"
+      }
+    },
+    "libsodium": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775768406,
+        "narHash": "sha256-k8u7iNqvjLA0PptbneDyE8zCtutJlV2LirrRb41tmBY=",
+        "owner": "jedisct1",
+        "repo": "libsodium",
+        "rev": "77e1ce5d6dee871c49ef211222ba18ef0c486bda",
+        "type": "github"
+      },
+      "original": {
+        "owner": "jedisct1",
+        "repo": "libsodium",
+        "rev": "77e1ce5d6dee871c49ef211222ba18ef0c486bda",
         "type": "github"
       }
     },
     "libudx": {
       "flake": false,
       "locked": {
-        "lastModified": 1774156281,
-        "narHash": "sha256-YFCkXEEYK0lda3Q7M53HPc9RqjU9B/tbVFDYx+zqYJM=",
+        "lastModified": 1781200856,
+        "narHash": "sha256-yhAjOvlOwEU7B33uLgdyCt0HdB5lF3ieUacN7eYLLbE=",
         "owner": "holepunchto",
         "repo": "libudx",
-        "rev": "0420f6267110e919d3fcefb8d5de4385912eb353",
+        "rev": "759bf7641347f65a1896d4bc4c3b1606a459f466",
         "type": "github"
       },
       "original": {
         "owner": "holepunchto",
         "repo": "libudx",
-        "rev": "0420f6267110e919d3fcefb8d5de4385912eb353",
+        "rev": "759bf7641347f65a1896d4bc4c3b1606a459f466",
+        "type": "github"
+      }
+    },
+    "libuv": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1745574627,
+        "narHash": "sha256-ayTk3qkeeAjrGj5ab7wF7vpWI8XWS1EeKKUqzaD/LY0=",
+        "owner": "libuv",
+        "repo": "libuv",
+        "rev": "5152db2cbfeb5582e9c27c5ea1dba2cd9e10759b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "libuv",
+        "repo": "libuv",
+        "rev": "5152db2cbfeb5582e9c27c5ea1dba2cd9e10759b",
         "type": "github"
       }
     },

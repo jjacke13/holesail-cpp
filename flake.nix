@@ -14,14 +14,26 @@
     # Note `path:../hyperdht-cpp` does NOT work — Nix resolves relative inputs
     # against the store copy of this flake, so `../` escapes the tree; and
     # `path:/abs/path` copies gitignored build dirs (~15 GB in that checkout).
-    hyperdht-cpp.url = "github:jjacke13/hyperdht-cpp";
+    hyperdht-cpp.url = "github:jjacke13/hyperdht-cpp/7967fa909e9145b91483c087774b91267d935feb";
     hyperdht-cpp.inputs.nixpkgs.follows = "nixpkgs";
+    # Match v0.6.0's actual compiled submodule, rather than its older flake default.
+    hyperdht-cpp.inputs.libudx.url = "github:holepunchto/libudx/759bf7641347f65a1896d4bc4c3b1606a459f466";
   };
 
   outputs = { self, nixpkgs, hyperdht-cpp }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
-      forAll = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
+      pinnedPkgs = pkgs: pkgs // {
+        libsodium = pkgs.libsodium.overrideAttrs {
+          version = "1.0.22";
+          src = hyperdht-cpp.inputs.libsodium;
+        };
+        libuv = pkgs.libuv.overrideAttrs {
+          version = "1.51.0";
+          src = hyperdht-cpp.inputs.libuv;
+        };
+      };
+      forAll = f: nixpkgs.lib.genAttrs systems (system: f system (pinnedPkgs nixpkgs.legacyPackages.${system}));
     in {
       devShells = forAll (system: pkgs: {
         default = pkgs.mkShell {
@@ -67,13 +79,13 @@
           # it as cross and the native toolchain is preserved.
           mkStatic = { arch, blurb }:
             let
-              staticPkgs = import nixpkgs {
+              staticPkgs = pinnedPkgs (import nixpkgs {
                 inherit system;
                 crossSystem = {
                   config = "${arch}-unknown-linux-musl";
                   isStatic = true;
                 };
-              };
+              });
               hyperdhtStatic = (import "${hyperdht-cpp}/nix/lib.nix" {
                 pkgs = staticPkgs;
                 libudx = hyperdht-cpp.inputs.libudx;
