@@ -94,7 +94,7 @@
             in
             staticPkgs.stdenv.mkDerivation {
               pname = "holesail-cpp-${arch}-static";
-              version = "0.2.0";
+              version = "0.2.1";
               src = self;
               nativeBuildInputs = [ staticPkgs.cmake staticPkgs.ninja staticPkgs.pkg-config ];
               buildInputs = [ staticPkgs.libsodium staticPkgs.libuv hyperdhtStatic ];
@@ -108,7 +108,7 @@
         {
           default = pkgs.stdenv.mkDerivation {
             pname = "holesail-cpp";
-            version = "0.2.0";
+            version = "0.2.1";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
             buildInputs = [

@@ -194,9 +194,12 @@ jobs:
             # notes alone — they are hand-written and must not be clobbered.
             gh release upload "$tag" staged/* --clobber
           else
+            notes=".github/release-notes/$tag.md"
+            [ -s "$notes" ] || { echo "::error::missing release notes: $notes"; exit 1; }
             gh release create "$tag" \
               --title "$tag" \
-              --generate-notes \
+              --notes-file "$notes" \
+              --draft \
               staged/*
           fi
           gh release view "$tag" --json assets --jq '.assets[] | "\(.name)  \(.size)B"'

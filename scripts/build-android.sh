@@ -91,10 +91,9 @@ SODIUM_PREFIX="$DEPS/libsodium/libsodium-android-armv8-a+crypto"
 if [ ! -f "$SODIUM_PREFIX/lib/libsodium.a" ]; then
   log "building libsodium for android-$ANDROID_API"
   rm -rf "$DEPS/libsodium"
-  git clone --depth 1 --branch stable https://github.com/jedisct1/libsodium.git "$DEPS/libsodium"
+  git clone --depth 1 --branch 1.0.22-RELEASE https://github.com/jedisct1/libsodium.git "$DEPS/libsodium"
   (
     cd "$DEPS/libsodium"
-    ./autogen.sh
     export ANDROID_NDK_HOME="$NDK"
     export NDK_PLATFORM="android-$ANDROID_API"
     export LIBSODIUM_FULL_BUILD=1
@@ -104,6 +103,8 @@ if [ ! -f "$SODIUM_PREFIX/lib/libsodium.a" ]; then
 else
   log "libsodium cached"
 fi
+[ "$(git -C "$DEPS/libsodium" rev-parse HEAD)" = 77e1ce5d6dee871c49ef211222ba18ef0c486bda ] \
+  || die "libsodium cache differs from the pinned source; remove build-android/deps and rebuild"
 
 # --------------------------------------------------------------------- libuv
 UV_PREFIX="$DEPS/libuv-install"
@@ -118,6 +119,8 @@ if [ ! -d "$UV_PREFIX/include" ]; then
 else
   log "libuv cached"
 fi
+[ "$(git -C "$DEPS/libuv" rev-parse HEAD)" = 5152db2cbfeb5582e9c27c5ea1dba2cd9e10759b ] \
+  || die "libuv cache differs from the pinned source; remove build-android/deps and rebuild"
 # The archive is libuv.a or libuv_a.a depending on version.
 UV_LIB="$(find "$UV_PREFIX" -name '*.a' | head -1)"
 [ -n "$UV_LIB" ] || die "no libuv static archive under $UV_PREFIX"

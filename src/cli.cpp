@@ -30,7 +30,7 @@ using colors::underline;
 using colors::yellow;
 
 // The JS reference reports its package version here; this is holesail-cpp's.
-constexpr const char* kVersion = "0.2.0";
+constexpr const char* kVersion = "0.2.1";
 constexpr const char* kDefaultHost = "127.0.0.1";
 constexpr long kMaxPort = 65535;
 
