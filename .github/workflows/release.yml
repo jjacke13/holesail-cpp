@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [x86_64, aarch64, armv7l]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -59,10 +59,15 @@ jobs:
           case "${{ matrix.arch }}" in
             x86_64)  want='x86-64' ;;
             aarch64) want='ARM aarch64' ;;
+            armv7l) want='ELF 32-bit LSB executable, ARM' ;;
           esac
           file "$bin"
           file "$bin" | grep -q "$want"             || { echo "::error::wrong machine"; exit 1; }
           file "$bin" | grep -q 'statically linked' || { echo "::error::not static"; exit 1; }
+          if [ "${{ matrix.arch }}" = armv7l ]; then
+            readelf -h "$bin" | grep -q 'hard-float ABI'
+            readelf -A "$bin" | grep -q 'Tag_FP_arch: VFPv3-D16'
+          fi
           if ldd "$bin" 2>&1 | grep -qv 'not a dynamic executable'; then
             echo "::error::binary has dynamic dependencies"; exit 1
           fi
@@ -72,7 +77,7 @@ jobs:
           install -m755 "$bin" "$out"
 
           # The native binary must actually run and report the tagged version.
-          # The cross one cannot be executed here — `file` above is all we get.
+          # Cross binaries are inspected above; ARM runtime testing is separate.
           if [ "${{ matrix.arch }}" = x86_64 ]; then
             got=$("$out" --version)
             [ "$got" = "${{ steps.v.outputs.version }}" ] \

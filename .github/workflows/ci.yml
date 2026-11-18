@@ -66,12 +66,11 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # The statics are what people actually download, and they have broken on
-  # their own before (pkgsStatic bootstrapping a static-musl cmake). Build both
+  # their own before (pkgsStatic bootstrapping a static-musl cmake). Build all targets
   # every time so a packaging break surfaces here and not at tag time.
   #
-  # NOTE: GitHub runners are x86-64. The aarch64 binary is cross-compiled and
-  # never executed anywhere in CI — only `file` confirms its shape. Running it
-  # still requires real hardware.
+  # NOTE: GitHub runners are x86-64. The ARM binaries are cross-compiled and
+  # inspected here; runtime testing on ARM remains separate.
   # ---------------------------------------------------------------------------
   static:
     name: static (${{ matrix.arch }})
@@ -79,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, aarch64]
+        arch: [x86_64, aarch64, armv7l]
     steps:
       - uses: actions/checkout@v7
 
@@ -109,11 +108,16 @@ jobs:
           case "${{ matrix.arch }}" in
             x86_64)  want='x86-64' ;;
             aarch64) want='ARM aarch64' ;;
+            armv7l) want='ELF 32-bit LSB executable, ARM' ;;
           esac
           file "$bin" | grep -q "$want"            || { echo "::error::wrong machine, expected $want"; exit 1; }
           file "$bin" | grep -q 'statically linked' || { echo "::error::not statically linked"; exit 1; }
           # A dynamic binary here means the static build silently regressed to a
           # normal one, which `file` alone would still call an ELF executable.
+          if [ "${{ matrix.arch }}" = armv7l ]; then
+            readelf -h "$bin" | grep -q 'hard-float ABI'
+            readelf -A "$bin" | grep -q 'Tag_FP_arch: VFPv3-D16'
+          fi
           if ldd "$bin" 2>&1 | grep -qv 'not a dynamic executable'; then
             echo "::error::binary has dynamic dependencies"; ldd "$bin"; exit 1
           fi

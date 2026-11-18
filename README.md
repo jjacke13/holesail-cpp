@@ -80,9 +80,9 @@ The 1.17 GB virtual is V8 reserving address space — harmless on 64-bit, fatal 
 For reference, the Python port of holesail on the same box sits at **20.9 MB RSS**,
 1 thread — between the two, as an interpreter with no JIT should.
 
-`nix build .#holesail-aarch64-static` and `.#holesail-x86_64-static` produce binaries you
-can `scp` onto any aarch64 or x86-64 Linux box — Pi Zero 2 W upward — with **zero runtime
-dependencies**: no nix, no Node, no libuv or libsodium needed on the target. Both are
+`nix build .#holesail-aarch64-static`, `.#holesail-x86_64-static` and `.#holesail-armv7l-static` produce binaries you
+can `scp` onto a matching ARMv7-A, aarch64 or x86-64 Linux device with **zero runtime
+dependencies**: no nix, no Node, no libuv or libsodium needed on the target. They are
 attached to every [release](https://github.com/jjacke13/holesail-cpp/releases), so the
 install is `curl` + `chmod +x`.
 
@@ -103,11 +103,18 @@ Packages:
 ```bash
 nix build .#default                    # result/bin/holesail for the host
 nix build .#holesail-aarch64-static    # aarch64 musl, fully static — scp onto a Pi, run it
+nix build .#holesail-armv7l-static     # ARMv7-A hard-float musl (VFPv3-D16, no NEON required)
 nix build .#holesail-x86_64-static     # x86-64 musl, fully static — same deal on a VPS
 
 # Android (Termux), arm64. Needs the NDK, not nix — see the note below.
 nix-shell nix/android-shell.nix --run ./scripts/build-android.sh
 ```
+
+The ARMv7 Linux binary is fully static and needs no Nix installation or shared
+libraries on the device. It requires little-endian ARMv7-A with the hard-float
+ABI and VFPv3-D16; ARMv6 (original Raspberry Pi Zero) and soft-float systems
+are not supported. ARMv7 execution has been checked under emulation; physical
+ARMv7 hardware testing remains pending.
 
 **Android** gets its own build, not a musl static. Android runs every app process
 behind a seccomp allowlist shaped around bionic's syscall set, and a static musl
@@ -120,7 +127,7 @@ builds it with the NDK's own CMake toolchain file and runs unchanged in CI or in
 ### CI
 
 Every push and PR runs `.github/workflows/ci.yml`: the 12 suites in Release **and**
-under ASan/UBSan, both fully-static binaries built and checked (right machine, really
+under ASan/UBSan, all three Linux static binaries built and checked (right machine, really
 static, no dynamic deps), and a guard that the four version strings agree with each
 other and with the tag. The sanitizer lane is the one that matters most — the crash
 that bit this project in the field only appeared in Release, where libudx compiles its
@@ -129,11 +136,11 @@ guarding assert out.
 `scripts/cross-test.sh` is deliberately **not** a merge gate: it needs the public DHT
 and will flake. Run it before a release.
 
-Tagging `v*` runs `.github/workflows/release.yml`, which rebuilds both statics plus the
+Tagging `v*` runs `.github/workflows/release.yml`, which rebuilds all three Linux statics plus the
 Android arm64 binary, refuses to publish if the tag disagrees with `src/cli.cpp`, and
-attaches them with a combined `SHA256SUMS.txt`. Note the aarch64 binary is
-cross-compiled and never executed in CI — and neither is the Android one. Only real
-hardware proves those run.
+attaches them with a combined `SHA256SUMS.txt`. The ARM Linux binaries are
+cross-compiled and inspected in CI; ARM runtime testing is separate. The Android
+binary also requires separate runtime testing.
 
 ### Plain CMake
 

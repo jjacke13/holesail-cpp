@@ -14,7 +14,7 @@
     # Note `path:../hyperdht-cpp` does NOT work — Nix resolves relative inputs
     # against the store copy of this flake, so `../` escapes the tree; and
     # `path:/abs/path` copies gitignored build dirs (~15 GB in that checkout).
-    hyperdht-cpp.url = "github:jjacke13/hyperdht-cpp/7967fa909e9145b91483c087774b91267d935feb";
+    hyperdht-cpp.url = "github:jjacke13/hyperdht-cpp/3e022ea75b638335bb833495b0257480c4e34346";
     hyperdht-cpp.inputs.nixpkgs.follows = "nixpkgs";
     # Match v0.6.0's actual compiled submodule, rather than its older flake default.
     hyperdht-cpp.inputs.libudx.url = "github:holepunchto/libudx/759bf7641347f65a1896d4bc4c3b1606a459f466";
@@ -61,8 +61,7 @@
       packages = forAll (system: pkgs:
         let
           # One musl, fully-static target — a single binary to scp onto a host
-          # with no runtime deps at all, and no nix needed there. hyperdht-cpp
-          # only publishes native package outputs, so its shared builder is
+          # with no runtime deps at all, and no nix needed there. The shared builder is
           # instantiated here against the cross set (the same expression its
           # own flake uses).
           #
@@ -77,12 +76,12 @@
           # This holds for x86_64 too, even when it matches the build platform:
           # the triple differs from the default `-gnu` one, so nix still treats
           # it as cross and the native toolchain is preserved.
-          mkStatic = { arch, blurb }:
+          mkStatic = { arch, blurb, abi ? "" }:
             let
               staticPkgs = pinnedPkgs (import nixpkgs {
                 inherit system;
                 crossSystem = {
-                  config = "${arch}-unknown-linux-musl";
+                  config = "${arch}-unknown-linux-musl${abi}";
                   isStatic = true;
                 };
               });
@@ -94,7 +93,7 @@
             in
             staticPkgs.stdenv.mkDerivation {
               pname = "holesail-cpp-${arch}-static";
-              version = "0.2.1";
+              version = "0.2.2";
               src = self;
               nativeBuildInputs = [ staticPkgs.cmake staticPkgs.ninja staticPkgs.pkg-config ];
               buildInputs = [ staticPkgs.libsodium staticPkgs.libuv hyperdhtStatic ];
@@ -108,7 +107,7 @@
         {
           default = pkgs.stdenv.mkDerivation {
             pname = "holesail-cpp";
-            version = "0.2.1";
+            version = "0.2.2";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
             buildInputs = [
@@ -116,6 +115,12 @@
               hyperdht-cpp.packages.${system}.default
             ];
             cmakeFlags = [ "-DHOLESAIL_BUILD_TESTS=OFF" ];
+          };
+
+          holesail-armv7l-static = mkStatic {
+            arch = "armv7l";
+            abi = "eabihf";
+            blurb = "for ARMv7-A hard-float Linux (VFPv3-D16, no NEON required)";
           };
 
           holesail-aarch64-static = mkStatic {
