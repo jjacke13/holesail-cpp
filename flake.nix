@@ -14,7 +14,8 @@
     # Note `path:../hyperdht-cpp` does NOT work — Nix resolves relative inputs
     # against the store copy of this flake, so `../` escapes the tree; and
     # `path:/abs/path` copies gitignored build dirs (~15 GB in that checkout).
-    hyperdht-cpp.url = "github:jjacke13/hyperdht-cpp/3e022ea75b638335bb833495b0257480c4e34346";
+    # Explicit archive keeps empty submodule directories consistent across Nix fetchers.
+    hyperdht-cpp.url = "https://api.github.com/repos/jjacke13/hyperdht-cpp/tarball/3e022ea75b638335bb833495b0257480c4e34346";
     hyperdht-cpp.inputs.nixpkgs.follows = "nixpkgs";
     # Match v0.6.0's actual compiled submodule, rather than its older flake default.
     hyperdht-cpp.inputs.libudx.url = "github:holepunchto/libudx/759bf7641347f65a1896d4bc4c3b1606a459f466";
@@ -93,7 +94,7 @@
             in
             staticPkgs.stdenv.mkDerivation {
               pname = "holesail-cpp-${arch}-static";
-              version = "0.2.2";
+              version = "0.2.3";
               src = self;
               nativeBuildInputs = [ staticPkgs.cmake staticPkgs.ninja staticPkgs.pkg-config ];
               buildInputs = [ staticPkgs.libsodium staticPkgs.libuv hyperdhtStatic ];
@@ -107,7 +108,7 @@
         {
           default = pkgs.stdenv.mkDerivation {
             pname = "holesail-cpp";
-            version = "0.2.2";
+            version = "0.2.3";
             src = self;
             nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config ];
             buildInputs = [

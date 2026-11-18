@@ -30,17 +30,13 @@
       },
       "locked": {
         "lastModified": 1795021102,
-        "narHash": "sha256-3sDnpeXm69KVf1JFbC8cztDP9AK0CpqbLMHwAbZIdtg=",
-        "owner": "jjacke13",
-        "repo": "hyperdht-cpp",
-        "rev": "3e022ea75b638335bb833495b0257480c4e34346",
-        "type": "github"
+        "narHash": "sha256-7miHc2G/6xJFJA2CXPvFFZWWyey9EiSTZUROP9/FtOc=",
+        "type": "tarball",
+        "url": "https://api.github.com/repos/jjacke13/hyperdht-cpp/tarball/3e022ea75b638335bb833495b0257480c4e34346"
       },
       "original": {
-        "owner": "jjacke13",
-        "repo": "hyperdht-cpp",
-        "rev": "3e022ea75b638335bb833495b0257480c4e34346",
-        "type": "github"
+        "type": "tarball",
+        "url": "https://api.github.com/repos/jjacke13/hyperdht-cpp/tarball/3e022ea75b638335bb833495b0257480c4e34346"
       }
     },
     "libsodium": {

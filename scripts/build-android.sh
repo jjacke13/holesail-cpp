@@ -47,8 +47,8 @@ mkdir -p "$DEPS"
 # ------------------------------------------------------- hyperdht source
 # Pin to flake.lock so a stale sibling checkout cannot silently produce an
 # Android binary built on a different transport than every other target.
-PINNED_REV="$(jq -r '.nodes["hyperdht-cpp"].locked.rev' "$ROOT/flake.lock")"
-[ -n "$PINNED_REV" ] && [ "$PINNED_REV" != "null" ] || die "no hyperdht-cpp rev in flake.lock"
+PINNED_REV="$(jq -er '.nodes["hyperdht-cpp"].locked | .rev // (.url | capture("/tarball/(?<rev>[0-9a-f]{40})$").rev)' "$ROOT/flake.lock")"
+[[ "$PINNED_REV" =~ ^[0-9a-f]{40}$ ]] || die "no immutable hyperdht-cpp rev in flake.lock"
 
 if [ -n "${HYPERDHT_SRC:-}" ]; then
   HYPERDHT_SRC="$(cd "$HYPERDHT_SRC" && pwd)"
